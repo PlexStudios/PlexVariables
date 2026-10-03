@@ -1,0 +1,57 @@
+Plex Studios Source-Available Terms
+Version 1.0
+
+Copyright (c) 2026 Plex Studios / Applex.
+All rights reserved except for the permissions expressly granted below.
+
+1. Permission to View and Evaluate
+
+You may view, clone, and inspect this source code for personal evaluation, learning, security review, interoperability review, and contribution to the official PlexVariables project.
+
+2. Permission to Modify Privately
+
+You may modify the source code for your own private, non-commercial use.
+
+3. Contributions
+
+If you submit code or other material to this repository through a pull request or another contribution mechanism, you grant Plex Studios a perpetual, worldwide, royalty-free, irrevocable license to use, reproduce, modify, distribute, sublicense, and relicense that contribution as part of PlexVariables or related Plex Studios projects.
+
+You represent that you have the right to submit the contribution under these terms.
+
+4. Restrictions
+
+Unless you have separate written permission from Plex Studios, you may not:
+
+- redistribute this source code or substantial portions of it;
+- distribute compiled or modified builds derived from this source code;
+- sell, rent, sublicense, or commercially redistribute the software;
+- rebrand or republish the software as your own product;
+- publish modified versions or forks for public distribution;
+- use substantial portions of the source code in a competing commercial product;
+- remove or misrepresent copyright, attribution, or licensing notices.
+
+5. Server Use
+
+These terms do not restrict normal use of an officially distributed PlexVariables build on a Minecraft server, subject to any terms attached to that distribution.
+
+6. No Trademark License
+
+These terms do not grant rights to the Plex Studios name, PlexVariables name, logos, icons, product artwork, or other branding.
+
+7. No Warranty
+
+THE SOFTWARE AND SOURCE CODE ARE PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE, AND NON-INFRINGEMENT.
+
+IN NO EVENT SHALL THE COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES, OR OTHER LIABILITY ARISING FROM THE SOFTWARE OR SOURCE CODE OR ITS USE.
+
+8. Separate Permission
+
+Plex Studios may grant additional permissions in writing on a case-by-case basis.
+
+9. Open-Source Status
+
+These terms are source-available terms and are not intended to be an OSI-approved open-source license.
+
+For permission requests, contact:
+
+devapplex@gmail.com
