@@ -1,0 +1,92 @@
+name: Bug report
+description: Report a reproducible PlexVariables problem
+title: "[Bug] "
+labels:
+  - bug
+body:
+  - type: input
+    id: plugin-version
+    attributes:
+      label: PlexVariables version
+      placeholder: "1.0.0"
+    validations:
+      required: true
+
+  - type: input
+    id: minecraft-version
+    attributes:
+      label: Minecraft version
+      placeholder: "1.21.11"
+    validations:
+      required: true
+
+  - type: input
+    id: paper-version
+    attributes:
+      label: Paper version
+      placeholder: "Paper build/version"
+    validations:
+      required: true
+
+  - type: input
+    id: java-version
+    attributes:
+      label: Java version
+      placeholder: "21"
+    validations:
+      required: true
+
+  - type: input
+    id: papi-version
+    attributes:
+      label: PlaceholderAPI version
+      placeholder: "2.11.x"
+    validations:
+      required: true
+
+  - type: textarea
+    id: variable
+    attributes:
+      label: Relevant variable configuration
+      description: Paste the smallest configuration that reproduces the problem.
+      render: yaml
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: Steps to reproduce
+      placeholder: |
+        1. Define ...
+        2. Reload ...
+        3. Resolve ...
+        4. Observe ...
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected
+    attributes:
+      label: Expected behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: actual
+    attributes:
+      label: Actual behavior
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: Relevant logs
+      render: text
+
+  - type: checkboxes
+    id: checks
+    attributes:
+      label: Checks
+      options:
+        - label: I removed passwords, tokens, credentials, and other private information.
+          required: true
