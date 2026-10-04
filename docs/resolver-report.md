@@ -1,7 +1,0 @@
-# Resolver component report
-
-Implemented `VariableDefinition`, `VariableType`, `VariableResolver`, and `ResolutionWarnings` against the shared interfaces. Resolution uses one immutable `PluginState` snapshot per root call; nested PlexVariables and external parser callbacks share a thread-local cycle set, depth and total work budget. Unknown IDs preserve their token in parsed text. Each template is scanned once, and substituted results are appended without another pass. The parser receives the nullable `OfflinePlayer` unchanged. Literal root values avoid allocating a request context.
-
-The resolver checks output length during expansion and after optional root-level legacy color serialization. Failures return the configured error value. Warnings include variable/source/cause, have per-key cooldown, a 256-key memory cap, and a global cap of 32 entries per cooldown window. `clearWarnings()` resets these counters after reload.
-
-`VariableResolverTest` covers literals, case-insensitive and cross-file references, unknown tokens and ordinary percent text, external parameters containing spaces, null and changing players, cycles, depth/work/output limits, external callback reentry, terminal parser output, stable and concurrent snapshots, parser exceptions, warning throttling, and enabled/disabled legacy and hex color output. The coordinated suite at 2026-10-01T06:41:15Z reported 21 resolver tests, 0 failures and 0 errors. Live Paper/PAPI behavior remains untested.
