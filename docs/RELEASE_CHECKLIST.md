@@ -3,7 +3,7 @@
 Use this checklist to perform pre-release verification of PlexVariables v1.0.0 artifacts and live server functionality.
 
 - [x] Clean build passes without errors (`./gradlew clean check build`)
-- [x] All 88 automated unit tests pass (100% success rate)
+- [x] All 89 automated unit tests pass (100% success rate)
 - [x] Installed on fresh Paper 1.21+ server with PlaceholderAPI
 - [x] Plugin initializes cleanly without console errors or warnings
 - [x] Default configuration files & directories seeded on first startup
