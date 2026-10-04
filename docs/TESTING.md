@@ -76,7 +76,7 @@ This document provides a clean-install acceptance testing protocol for verifying
 ### K. Cycle Protection
 1. Create a variable cycle: `var_a: "%plexvar_var_b%"` and `var_b: "%plexvar_var_a%"`.
 2. Run `/pv parse --null %plexvar_var_a%`.
-3. Expected: Returns configured `error-value` (default: `N/A`) with single throttled console warning, no stack overflow or thread lockup.
+3. Expected: Returns the configured `error-value` (default: an empty string) with a single throttled console warning, no stack overflow or thread lockup.
 
 ### L. PlaceholderAPI Reload
 1. Run `/papi reload`.
