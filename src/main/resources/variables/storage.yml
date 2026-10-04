@@ -1,0 +1,11 @@
+# Example Stored Variables for PlexVariables
+variables:
+  player_gems:
+    type: stored
+    scope: player
+    default: "0"
+
+  server_event_status:
+    type: stored
+    scope: global
+    default: "inactive"

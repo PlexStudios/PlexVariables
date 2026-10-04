@@ -1,0 +1,20 @@
+# PlexVariables resolution and command limits.
+settings:
+  max-resolution-depth: 10
+  max-expansions: 1000
+  max-output-length: 65536
+  warning-cooldown-seconds: 60
+  list-page-size: 10
+  # Text used when a cycle, limit, or expansion error prevents resolution.
+  # Placeholder tokens are not allowed here.
+  error-value: ''
+  colorize-placeholder-output: true
+  conditions:
+    case-sensitive: false
+  expressions:
+    max-length: 4096
+    max-tokens: 512
+    max-parenthesis-depth: 64
+  storage:
+    max-value-length: 4096
+    shutdown-timeout-seconds: 10

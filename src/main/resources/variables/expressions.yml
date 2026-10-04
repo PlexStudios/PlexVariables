@@ -1,0 +1,21 @@
+# Example expression variables. Note: Some statistics placeholders require specific PlaceholderAPI expansions.
+variables:
+  simple_math:
+    expression: "10 + 5"
+
+  kd_ratio:
+    expression: "%statistic_player_kills% / %statistic_deaths%"
+    decimals: 2
+    on-error: "0"
+
+  winrate:
+    expression: "(%statistic_player_wins% / (%statistic_player_wins% + %statistic_player_losses%)) * 100"
+    decimals: 1
+    suffix: "%"
+    on-error: "0%"
+
+  formatted_number:
+    expression: "1234567.89"
+    decimals: 2
+    format:
+      thousands-separator: true

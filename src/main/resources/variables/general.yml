@@ -1,0 +1,9 @@
+# Define variables under `variables`. IDs use letters, numbers, `_`, and `-`.
+# Use %plexvar_<id>% in PlaceholderAPI-supported text.
+variables:
+  server_name:
+    value: '&d&lPlex Network'
+  website:
+    value: '&fexample.com'
+  welcome:
+    value: '&fWelcome &d%player_name% &fto %plexvar_server_name%!'

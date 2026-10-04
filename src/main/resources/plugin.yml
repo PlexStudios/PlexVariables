@@ -1,0 +1,75 @@
+name: PlexVariables
+version: '${version}'
+main: dev.plex.plexvariables.PlexVariables
+api-version: '1.21'
+author: Plex
+description: Define custom PlaceholderAPI variables in automatically discovered YAML files.
+depend: [PlaceholderAPI]
+commands:
+  plexvariables:
+    description: Manage and debug configured variables.
+    aliases: [plexvar, pvar, pv]
+    usage: /<command> help
+permissions:
+  plexvariables.use:
+    description: View the command help.
+    default: op
+  plexvariables.admin:
+    description: Access all variable administration commands.
+    default: op
+    children:
+      plexvariables.use: true
+      plexvariables.reload: true
+      plexvariables.list: true
+      plexvariables.parse: true
+      plexvariables.test: true
+      plexvariables.set: true
+      plexvariables.add: true
+      plexvariables.get: true
+      plexvariables.reset: true
+      plexvariables.remove: true
+  plexvariables.reload:
+    description: Reload configuration and variable files.
+    default: op
+    children:
+      plexvariables.use: true
+  plexvariables.list:
+    description: List loaded variables.
+    default: op
+    children:
+      plexvariables.use: true
+  plexvariables.parse:
+    description: Parse placeholders for online or cached players.
+    default: op
+    children:
+      plexvariables.use: true
+  plexvariables.test:
+    description: Test and debug variable condition evaluation.
+    default: op
+    children:
+      plexvariables.use: true
+  plexvariables.set:
+    description: Set a stored variable value.
+    default: op
+    children:
+      plexvariables.use: true
+  plexvariables.add:
+    description: Add to a stored variable value.
+    default: op
+    children:
+      plexvariables.use: true
+  plexvariables.get:
+    description: Get a stored variable value.
+    default: op
+    children:
+      plexvariables.use: true
+  plexvariables.reset:
+    description: Reset a stored variable value to default.
+    default: op
+    children:
+      plexvariables.use: true
+  plexvariables.remove:
+    description: Reset or remove a stored variable value.
+    default: op
+    children:
+      plexvariables.use: true

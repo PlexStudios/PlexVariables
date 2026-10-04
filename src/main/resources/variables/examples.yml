@@ -1,0 +1,8 @@
+# Examples can be edited or removed after installation.
+variables:
+  example_static:
+    value: '&aThis is a custom variable.'
+  example_nested:
+    value: '&fServer: %plexvar_server_name%'
+  example_player:
+    value: '&fHello, &b%player_name%!'

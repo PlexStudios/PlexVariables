@@ -1,0 +1,22 @@
+variables:
+  health_status:
+    conditions:
+      - condition: "%player_health% <= 5"
+        value: "&cCritical"
+      - condition: "%player_health% <= 10"
+        value: "&eLow"
+    default: "&aHealthy"
+
+  player_role:
+    conditions:
+      - condition: "permission:plexvariables.admin"
+        value: "&cAdministrator"
+    default: "&7Player"
+
+  gamemode_status:
+    conditions:
+      - condition: "%player_gamemode% == survival"
+        value: "&aSurvival"
+      - condition: "%player_gamemode% == creative"
+        value: "&bCreative"
+    default: "&7Other"
