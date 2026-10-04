@@ -26,4 +26,4 @@ Use this checklist to perform pre-release verification of PlexVariables v1.0.0 a
 - [x] Server shutdown (`stop`) cleanly releases SQLite connections and terminates thread executor
 - [x] Distributable shadow JAR checked (`build/libs/PlexVariables-1.0.0.jar`)
 - [x] README.md reviewed and reflects v1.0.0 capabilities accurately
-- [x] Version tag confirmed as `1.0.0` across `build.gradle` and `plugin.yml`
+- [x] Version confirmed as `1.0.0` in `build.gradle`, with `plugin.yml` populated from the Gradle version during resource processing
