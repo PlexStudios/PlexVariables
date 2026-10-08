@@ -2,7 +2,7 @@
 
 **Beta / pre-release:** Automated validation is complete. Manual Paper testing is still pending.
 
-> Build reusable PlaceholderAPI variables with conditions, expressions, nesting, and persistent storage — without writing Java for every value.
+> Build reusable PlaceholderAPI variables with conditions, expressions, nesting, and persistent storage without writing Java for every value.
 
 **Paper 1.21+ · Java 21 · PlaceholderAPI**
 
