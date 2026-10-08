@@ -2,8 +2,9 @@ name: PlexVariables
 version: '${version}'
 main: dev.plex.plexvariables.PlexVariables
 api-version: '1.21'
-author: Plex
+author: Plex Studios
 description: Define custom PlaceholderAPI variables in automatically discovered YAML files.
+website: https://github.com/PlexStudios/PlexVariables
 depend: [PlaceholderAPI]
 commands:
   plexvariables:

@@ -1,10 +1,12 @@
 # PlexVariables 1.0.1
 
+**Beta / pre-release:** Automated validation is complete. Manual Paper testing is still pending.
+
 > Build reusable PlaceholderAPI variables with conditions, expressions, nesting, and persistent storage — without writing Java for every value.
 
 **Paper 1.21+ · Java 21 · PlaceholderAPI**
 
-PlexVariables is a high-performance, configurable variable engine for Paper Minecraft servers. It allows server owners and developers to define custom PlaceholderAPI placeholders and dynamic stored variables in clean YAML files—without writing Java for every value.
+PlexVariables is a configurable variable engine for Paper Minecraft servers. It allows server owners and developers to define custom PlaceholderAPI placeholders and dynamic stored variables in clean YAML files—without writing Java for every value.
 
 PlexVariables supports **static**, **conditional**, mathematical **expression**, and persistent **stored** variables. The expansion identifier is `plexvar`, so a variable named `kd_ratio` is available as `%plexvar_kd_ratio%`, while global stored variables can also be accessed via `%plexvar_global_<id>%`.
 
@@ -46,7 +48,7 @@ Variables can reference other variables, allowing small definitions to be compos
 - **Static, Conditional, Expression & Stored Types**: Full spectrum of variable resolution logic.
 - **Nested Variable Composition**: Variables can reference other PlexVariables and external PlaceholderAPI placeholders.
 - **Cycle & Depth Protection**: Automatic detection of circular references, stack depth limits (default 10), and total expansion work caps.
-- **Zero Disk Overhead on Hot Paths**: Stored variables are served directly from thread-safe in-memory caches.
+- **No Database I/O on Placeholder Hot Paths**: Stored variables are served directly from thread-safe in-memory caches.
 - **Asynchronous Persistence**: SQLite reads and mutations are serialized on a dedicated storage executor; placeholder resolution uses in-memory caches.
 - **Safe Mathematical AST Evaluator**: No arbitrary code execution; supports operators, parentheses, and math functions.
 - **Transactional Reloads**: Safe configuration reload retains the current working state if newly loaded files have syntax errors.
@@ -110,7 +112,7 @@ variables:
 
 ### 3. Expression Variables
 
-Expression variables evaluate mathematical equations with operators, nested parentheses, and functions. Expressions are compiled at load time into an Abstract Syntax Tree (AST) for zero-overhead execution.
+Expression variables evaluate mathematical equations with operators, nested parentheses, and functions. Expressions are compiled at load time into an Abstract Syntax Tree (AST) before runtime evaluation.
 
 ```yaml
 variables:

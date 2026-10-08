@@ -1,198 +1,645 @@
-# Public Java API — PlexVariables 1.0.1
+# PlexVariables Developer API
 
-PlexVariables 1.0.1 introduces `dev.plex.plexvariables.api.PlexVariablesApi` (API version `1`). Any Paper plugin can consume this service. The public package contains one service interface and its nested immutable records, enums, subscription interface, and read exception. Consumers do not need a main-plugin cast, static internals, or implementation imports.
+**1.0.1 beta / pre-release:** Automated validation is complete; manual Paper testing is still pending.
 
-## Dependency and discovery
+PlexVariables 1.0.1 introduces a public API for Paper plugins that need to resolve variables, read or modify stored values, and react to stored-variable changes without running PlexVariables commands or accessing internal classes.
 
-Compile against the 1.0.1 shaded plugin JAR without bundling it into your plugin. For a local Gradle dependency, place the real built JAR at the path you declare:
+The API is exposed through Bukkit's `ServicesManager` and is designed to remain independent from any specific consumer plugin.
 
-```groovy
+## Requirements
+
+- PlexVariables 1.0.1+
+- Paper 1.21+
+- Java 21
+- PlaceholderAPI installed on the server
+
+Your plugin should treat PlexVariables as a runtime dependency or optional integration, depending on whether your plugin can operate without it.
+
+## Adding PlexVariables to Your Project
+
+PlexVariables does not currently publish an official Maven repository artifact.
+
+For local development, place the PlexVariables 1.0.1 JAR in your project's `libs/` directory and use it as a compile-only dependency.
+
+### Gradle
+
+```gradle
 dependencies {
     compileOnly files('libs/PlexVariables-1.0.1.jar')
 }
 ```
 
-For a required dependency, add `depend: [PlexVariables]` to your own plugin.yml. For an optional integration, use `softdepend: [PlexVariables]`, handle service absence, and avoid loading API-dependent classes until the dependency is available. PlexVariables does not declare dependencies on its consumers.
+Do not shade or bundle PlexVariables inside your plugin.
 
-Obtain the service during your plugin's enable lifecycle:
+## plugin.yml
 
-```java
-PlexVariablesApi api = getServer().getServicesManager().load(PlexVariablesApi.class);
-if (api == null) {
-    getLogger().severe("PlexVariables API is unavailable");
-    getServer().getPluginManager().disablePlugin(this);
-    return;
-}
-```
-
-The service is registered after successful PlexVariables initialization and unregistered on disable. Do not retain a provider across PlexVariables disable/re-enable; reacquire it for a new integration lifecycle.
-
-## Example variable configuration
-
-The operations below assume these example definitions are added by the server administrator to a variable YAML file. These are documentation examples, not data automatically created by the API:
+If your plugin requires PlexVariables:
 
 ```yaml
-variables:
-  score:
-    type: stored
-    scope: player
-    default: "0"
-  total:
-    type: stored
-    scope: global
-    default: "0"
+depend:
+  - PlexVariables
 ```
 
-IDs are case insensitive. Operations validate the current definition and scope before submission. A mutation uses the validated definition's default snapshot even if configuration is reloaded while that mutation waits in the queue.
+If PlexVariables support is optional:
 
-## Resolving and reading
+```yaml
+softdepend:
+  - PlexVariables
+```
 
-`variable(id)` returns an Optional containing immutable definition metadata, or an empty Optional for an unknown ID. A non-stored definition has a null metadata scope. `resolve(player, id)` uses the existing resolver, nested placeholders, formatting, and defaults. It requires the server thread and returns null for an unknown ID. A null player retains the resolver's existing context-free behavior.
+## Obtaining the API
+
+PlexVariables publishes its API through Bukkit's `ServicesManager`.
 
 ```java
-String resolved = api.resolve(player, "score");
-CompletableFuture<Optional<String>> playerOverride =
-        api.getStoredPlayerValue(player.getUniqueId(), "score");
-CompletableFuture<Optional<String>> globalOverride =
-        api.getStoredGlobalValue("total");
+import dev.plex.plexvariables.api.PlexVariablesApi;
+import org.bukkit.Bukkit;
+import org.bukkit.plugin.RegisteredServiceProvider;
+
+RegisteredServiceProvider<PlexVariablesApi> registration =
+        Bukkit.getServicesManager().getRegistration(PlexVariablesApi.class);
+
+if (registration == null) {
+    return;
+}
+
+PlexVariablesApi api = registration.getProvider();
 ```
 
-Resolution reads caches and never waits for SQLite. Authoritative reads execute on the storage executor, including for offline UUIDs, and return raw persisted overrides. An absent row is `Optional.empty()`, even when a configured default exists. Global reads need no player or special UUID. Player reads require a real player UUID; the API never performs name lookups.
+Do not cast the PlexVariables main plugin class and do not access storage, cache, resolver, or SQLite implementation classes directly.
 
-## Set, add, and reset
+## Variable Definitions
 
-Every mutation returns `CompletableFuture<PlexVariablesApi.MutationResult>`:
+Use `variable(String)` to look up public metadata for a configured PlexVariable.
 
 ```java
-UUID playerId = player.getUniqueId();
-CompletableFuture<PlexVariablesApi.MutationResult> playerSet =
-        api.setStoredPlayerValue(playerId, "score", "20");
-CompletableFuture<PlexVariablesApi.MutationResult> playerAdd =
-        api.addStoredPlayerValue(playerId, "score", new BigDecimal("2.5"));
-CompletableFuture<PlexVariablesApi.MutationResult> playerReset =
-        api.resetStoredPlayerValue(playerId, "score");
-CompletableFuture<PlexVariablesApi.MutationResult> globalSet =
-        api.setStoredGlobalValue("total", "20");
-CompletableFuture<PlexVariablesApi.MutationResult> globalAdd =
-        api.addStoredGlobalValue("total", BigDecimal.ONE);
-CompletableFuture<PlexVariablesApi.MutationResult> globalReset =
-        api.resetStoredGlobalValue("total");
+var variable = api.variable("player_level");
+
+if (variable.isEmpty()) {
+    return;
+}
+
+var info = variable.get();
 ```
 
-These calls illustrate the available operations; choose the operations your plugin needs. Submitted mutations are serialized. Set accepts any nonnull string within the configured storage length limit. Reset removes the override so normal resolution can use the configured default. Add uses BigDecimal, accepts integer/decimal/negative amounts, and writes normalized plain decimal strings without exponent notation. It starts from the persisted value or configured default. A missing start without a default produces MISSING_VALUE; invalid numeric text produces NON_NUMERIC. It never silently starts at zero. Existing `/pv add` retains its established zero-start behavior when no default is configured.
+Unknown IDs return an empty `Optional`.
 
-## Optional mutation context
+Definition metadata is an immutable snapshot and does not expose PlexVariables internals.
 
-All six mutation methods have an overload appending MutationContext. Simple calls above require no context. A context-taking overload requires a nonnull context:
+## Resolving a Variable
+
+Use the normal resolver when you want the same resolved value that PlexVariables would expose through PlaceholderAPI.
 
 ```java
-var context = new PlexVariablesApi.MutationContext(
-        "ExamplePlugin", Optional.of("reward-operation"), Map.of("action", "reward"));
-api.addStoredPlayerValue(player.getUniqueId(), "score", BigDecimal.ONE, context);
+var value = api.resolve(player, "health_status");
 ```
 
-`new MutationContext("ExamplePlugin")` is sufficient when only a source is useful. Source must be nonblank. Correlation IDs and metadata are opaque, optional caller information; source names are never interpreted. Metadata is defensively copied into an immutable string map, rejecting null keys/values. No caller-owned mutable payload is retained in the public models.
+Resolution follows normal PlexVariables behavior, including defaults, formatting, nested variables, and PlaceholderAPI expansion.
 
-## Results and errors
+Variable resolution is a server-thread operation. Do not call it from an arbitrary asynchronous thread.
+
+## Stored Values
+
+Stored-variable reads return the raw persisted override.
+
+They do not automatically substitute the configured default.
+
+This distinction matters:
+
+- No persisted row: `Optional.empty()`
+- Persisted value `"100"`: `Optional.of("100")`
+- Configured default `"100"` with no row: still `Optional.empty()`
+
+Use normal variable resolution when you want the final effective value after defaults and formatting.
+
+## Reading Player Values
+
+```java
+api.getStoredPlayerValue(
+        player.getUniqueId(),
+        "gems"
+).thenAccept(value -> {
+    value.ifPresent(System.out::println);
+});
+```
+
+Return type:
+
+```java
+CompletableFuture<Optional<String>>
+```
+
+## Reading Global Values
+
+```java
+api.getStoredGlobalValue("season")
+        .thenAccept(value -> {
+            value.ifPresent(System.out::println);
+        });
+```
+
+Reads are asynchronous and use PlexVariables' storage executor.
+
+## Setting Player Values
+
+```java
+api.setStoredPlayerValue(
+        player.getUniqueId(),
+        "gems",
+        "250"
+).thenAccept(result -> {
+    if (!result.success()) {
+        getLogger().warning("Update failed: " + result.status());
+    }
+});
+```
+
+## Setting Global Values
+
+```java
+api.setStoredGlobalValue(
+        "season",
+        "3"
+).thenAccept(result -> {
+    if (!result.success()) {
+        getLogger().warning("Update failed: " + result.status());
+    }
+});
+```
+
+## Adding Numeric Values
+
+Numeric additions use `BigDecimal`.
+
+### Player
+
+```java
+import java.math.BigDecimal;
+
+api.addStoredPlayerValue(
+        player.getUniqueId(),
+        "gems",
+        new BigDecimal("100")
+);
+```
+
+### Global
+
+```java
+api.addStoredGlobalValue(
+        "total_votes",
+        BigDecimal.ONE
+);
+```
+
+The API does not silently convert missing or non-numeric starting values to zero.
+
+If the current stored value or configured starting value cannot be used numerically, the operation returns an appropriate mutation status.
+
+## Resetting Values
+
+Reset removes the persisted override and allows the configured default to become effective again.
+
+### Player
+
+```java
+api.resetStoredPlayerValue(
+        player.getUniqueId(),
+        "gems"
+);
+```
+
+### Global
+
+```java
+api.resetStoredGlobalValue("season");
+```
+
+## Mutation Results
+
+Set, add, and reset operations return:
+
+```java
+CompletableFuture<PlexVariablesApi.MutationResult>
+```
+
+A mutation result contains:
+
+- `status()`
+- `change()`
+- `success()`
+
+`success()` returns `true` for both `SUCCESS` and `NO_CHANGE`.
+
+### Status Values
 
 | Status | Meaning |
 | --- | --- |
-| SUCCESS | The requested raw override transition committed successfully. |
-| NO_CHANGE | The requested raw state already existed; no database write was needed. |
-| MISSING_VALUE | Numeric add had neither a persisted value nor a configured default. |
-| NON_NUMERIC | The persisted starting value or configured default could not be parsed numerically. |
-| VALUE_TOO_LONG | The resulting value exceeded the configured storage limit. |
-| STORAGE_UNAVAILABLE | Storage is shutting down or no longer accepts work. |
-| PERSISTENCE_FAILED | A stored read or write failed during mutation. |
+| `SUCCESS` | The requested persisted state change completed successfully. |
+| `NO_CHANGE` | The requested operation did not change the raw persisted state. |
+| `MISSING_VALUE` | A numeric operation had neither a stored override nor a configured starting value. |
+| `NON_NUMERIC` | A numeric operation encountered a non-numeric value. |
+| `VALUE_TOO_LONG` | The requested value exceeded the configured storage limit. |
+| `STORAGE_UNAVAILABLE` | Storage could not accept the operation. |
+| `PERSISTENCE_FAILED` | The database operation failed. |
 
-`result.success()` is true for SUCCESS and NO_CHANGE. Those statuses include `result.change()` with raw old/new values. Failure statuses contain no change record, rather than presenting unknown state as an absent database row. Model constructors validate these invariants.
+Example:
 
 ```java
-api.addStoredGlobalValue("total", BigDecimal.ONE).thenAccept(result -> {
-    if (!result.success()) {
-        getLogger().warning("Global add failed: " + result.status());
-        return;
+api.addStoredPlayerValue(
+        player.getUniqueId(),
+        "gems",
+        BigDecimal.TEN
+).thenAccept(result -> {
+    switch (result.status()) {
+        case SUCCESS, NO_CHANGE ->
+                getLogger().info("Mutation completed.");
+        default ->
+                getLogger().warning("Mutation failed: " + result.status());
     }
-    result.change().orElseThrow().newValue().ifPresent(value ->
-            getLogger().info("Stored total is now " + value));
 });
 ```
 
-Invalid arguments (null required fields, blank IDs, unknown/non-stored variables, wrong scope) throw argument exceptions synchronously. Check those before submitting user-supplied requests. Reads complete exceptionally with `PlexVariablesApi.ReadException`, whose `status()` is STORAGE_UNAVAILABLE or PERSISTENCE_FAILED. Internal storage exceptions and database details are not part of this public contract. Handle unexpected exceptional completion as well; no continuation is guaranteed to run on the server thread.
+## Mutation Context
 
-## Raw state versus effective changes
+Mutation context is optional.
 
-Change records contain variable ID, explicit scope, Optional player UUID (present only for PLAYER), Optional old/new raw overrides, and Optional context. Empty raw values mean absent rows, not configured defaults. Reset therefore has an empty new override.
+Normal integrations do not need to provide one.
 
-Identical raw writes and reset of an absent row return NO_CHANGE and do not notify. Setting an override equal to its configured default still persists that override and returns SUCCESS: its raw state affects future default changes. Resetting that same override also returns SUCCESS. Neither emits a notification when the current effective stored value stays the same. Effective comparison uses the raw override or configured default as text; numeric strings `1.0` and `1` are distinct because variable resolution preserves text. Placeholder expansion itself is not monitored, and configuration reloads do not generate stored-mutation notifications.
-
-## Listening, ownership, and unsubscribe
+Use it when your plugin wants to attach generic source or correlation information to a mutation.
 
 ```java
-PlexVariablesApi.Subscription subscription = api.subscribe(this, change -> {
-    getLogger().info("Stored variable changed: " + change.variable());
-});
+PlexVariablesApi.MutationContext context =
+        new PlexVariablesApi.MutationContext("ExamplePlugin");
+```
+
+Then pass it as the final argument:
+
+```java
+api.setStoredPlayerValue(
+        player.getUniqueId(),
+        "gems",
+        "500",
+        context
+);
+```
+
+A context may contain:
+
+- a nonblank source
+- an optional correlation ID
+- immutable string metadata
+
+PlexVariables carries this data without interpreting the source or metadata.
+
+Example with additional metadata:
+
+```java
+import java.util.Map;
+import java.util.Optional;
+
+PlexVariablesApi.MutationContext context =
+        new PlexVariablesApi.MutationContext(
+                "ExamplePlugin",
+                Optional.of("reward-481"),
+                Map.of("reason", "daily-reward")
+        );
+```
+
+## Variable Changes
+
+Successful effective changes can be observed through subscriptions.
+
+A `VariableChange` provides:
+
+- variable ID
+- scope
+- optional player UUID
+- old raw persisted override
+- new raw persisted override
+- optional mutation context
+
+Player-scoped changes include a player UUID.
+
+Global changes do not.
+
+## Owner-Aware Subscriptions
+
+For most plugins, use the owner-aware subscription method.
+
+```java
+PlexVariablesApi.Subscription subscription =
+        api.subscribe(this, change -> {
+            getLogger().info(
+                    change.variable()
+                            + " changed from "
+                            + change.oldValue().orElse("<unset>")
+                            + " to "
+                            + change.newValue().orElse("<unset>")
+            );
+        });
+```
+
+PlexVariables automatically removes owner-aware subscriptions when the owning plugin disables.
+
+Owner-aware registration is a server-thread operation and the owner must currently be enabled.
+
+You may still close the returned handle manually:
+
+```java
 subscription.close();
 ```
 
-Owner-aware registration must run on the server thread and requires an enabled Bukkit Plugin owner. PlexVariables removes that owner's subscriptions on PluginDisableEvent, rejects late registrations during the same disable event, and clears all subscriptions on its own shutdown. Disabled-owner tracking uses weak references; a later PluginEnableEvent permits a new integration lifecycle. Closing a handle is idempotent and releases listener/owner references even if the consumer retains the handle. A callback already acquired for execution may finish; closing prevents subsequent callback entry. A listener can close itself or another subscription safely.
+Closing is idempotent.
 
-For an explicitly managed subscription use `api.subscribe(listener)` and close it when your integration ends. Provider shutdown also clears these registrations. New subscriptions are rejected during shutdown. Subscriber failures do not affect committed writes or other subscribers; only the first failure per registration is logged, using its class without its message or stack trace.
+## Manually Managed Subscriptions
 
-Callbacks run on the **storage executor**, after successful SQLite commit and cache update and before the mutation future completes. Existing commands use the same notification path. Failed operations and effective no-ops do not notify. Keep callbacks short. Never wait for another storage future from a callback: it would wait on the same executor. Schedule Bukkit world/player work with your plugin's scheduler instead. Do not block the server thread with join/get on storage futures.
-
-## Complete ExamplePlugin integration
-
-This example grants one score point when a player joins, using the example `score` definition above. It handles mutation results asynchronously and owns its subscription explicitly:
+A subscription can also be created without an owning plugin:
 
 ```java
-package example;
+PlexVariablesApi.Subscription subscription =
+        api.subscribe(change -> {
+            getLogger().info(change.variable());
+        });
+```
+
+You are responsible for closing manually managed subscriptions:
+
+```java
+subscription.close();
+```
+
+Do not leave unmanaged subscriptions active after your plugin disables.
+
+## Notification Semantics
+
+PlexVariables distinguishes between raw persisted state and the final effective value.
+
+For example, assume:
+
+```yaml
+default: "10"
+```
+
+If no database row exists and your plugin explicitly stores `"10"`:
+
+- The raw persisted state changed.
+- The mutation can return `SUCCESS`.
+- The effective value remained `"10"`.
+- No change notification is emitted.
+
+Likewise, resetting an override back to the same configured default can successfully change persisted state without producing an effective-value notification.
+
+This prevents consumers from receiving misleading change events when the value seen by players did not actually change.
+
+Repeated operations that do not change the raw persisted state return `NO_CHANGE`.
+
+## Notification Timing
+
+Change subscribers are notified only after:
+
+1. The authoritative stored value has been read.
+2. The mutation has been calculated and validated.
+3. SQLite has successfully committed the write.
+4. PlexVariables has updated its relevant cache.
+5. The effective stored value is confirmed to have changed.
+
+Failed writes do not update caches and do not emit successful change notifications.
+
+Subscriber failures do not turn an already committed mutation into a failed mutation and do not prevent other subscribers from receiving the change.
+
+## Threading
+
+Stored reads and mutations are asynchronous.
+
+Do not block the Paper server thread waiting for them.
+
+Avoid:
+
+```java
+api.getStoredGlobalValue("season").join();
+```
+
+Prefer asynchronous composition:
+
+```java
+api.getStoredGlobalValue("season")
+        .thenAccept(value -> {
+            getLogger().info(value.orElse("<unset>"));
+        });
+```
+
+Subscription callbacks execute on PlexVariables' storage executor.
+
+They are not Paper server-thread callbacks.
+
+Do not directly modify players, worlds, inventories, entities, or other thread-sensitive Bukkit state from a subscription callback.
+
+Schedule Bukkit work back onto the server thread:
+
+```java
+api.subscribe(this, change -> {
+    getServer().getScheduler().runTask(this, () -> {
+        getLogger().info("Handling " + change.variable() + " on the server thread.");
+    });
+});
+```
+
+Callbacks should remain short.
+
+Do not block a subscription callback waiting for another PlexVariables storage future, because stored operations use the same serialized storage executor.
+
+`CompletableFuture` continuations also have no automatic server-thread guarantee.
+
+## Read Failures
+
+Persisted reads complete exceptionally when storage cannot perform the read.
+
+The public API exposes `PlexVariablesApi.ReadException`, with `STORAGE_UNAVAILABLE` or `PERSISTENCE_FAILED` available through `status()`, rather than leaking internal SQLite or storage exceptions.
+
+Example:
+
+```java
+api.getStoredGlobalValue("season")
+        .whenComplete((value, throwable) -> {
+            if (throwable != null) {
+                getLogger().warning("Could not read season.");
+                return;
+            }
+
+            getLogger().info(value.orElse("<unset>"));
+        });
+```
+
+Do not depend on PlexVariables' internal storage exception types.
+
+## Player and Global Scope
+
+The API uses explicit methods for each scope.
+
+Use:
+
+```text
+getStoredPlayerValue
+setStoredPlayerValue
+addStoredPlayerValue
+resetStoredPlayerValue
+```
+
+for player-scoped variables.
+
+Use:
+
+```text
+getStoredGlobalValue
+setStoredGlobalValue
+addStoredGlobalValue
+resetStoredGlobalValue
+```
+
+for global variables.
+
+Unknown or non-stored definitions and scope mismatches throw `IllegalArgumentException` synchronously. Required null arguments throw `NullPointerException`. Use context-free overloads when no mutation context is needed; context-taking overloads require a non-null context.
+
+Do not use fake UUIDs or `null` players to represent global values.
+
+## Complete Example
+
+Call ewardPlayer on the server thread. Configure a player-scoped stored variable named gems with a numeric default before using this example; the API never creates definitions implicitly.
+
+```java
+package com.example.exampleplugin;
 
 import dev.plex.plexvariables.api.PlexVariablesApi;
-import org.bukkit.event.EventHandler;
-import org.bukkit.event.Listener;
-import org.bukkit.event.player.PlayerJoinEvent;
+import org.bukkit.Bukkit;
+import org.bukkit.plugin.RegisteredServiceProvider;
 import org.bukkit.plugin.java.JavaPlugin;
 
 import java.math.BigDecimal;
 
-public final class ExamplePlugin extends JavaPlugin implements Listener {
-    private PlexVariablesApi api;
+public final class ExamplePlugin extends JavaPlugin {
+    private PlexVariablesApi plexVariablesApi;
     private PlexVariablesApi.Subscription subscription;
 
     @Override
     public void onEnable() {
-        api = getServer().getServicesManager().load(PlexVariablesApi.class);
-        if (api == null || api.variable("score").isEmpty()) {
-            getLogger().severe("PlexVariables API or score definition is unavailable");
+        RegisteredServiceProvider<PlexVariablesApi> registration =
+                Bukkit.getServicesManager().getRegistration(PlexVariablesApi.class);
+
+        if (registration == null) {
+            getLogger().warning("PlexVariables 1.0.1+ was not found.");
             getServer().getPluginManager().disablePlugin(this);
             return;
         }
-        subscription = api.subscribe(this, change ->
-                getLogger().info("Stored variable changed: " + change.variable()));
-        getServer().getPluginManager().registerEvents(this, this);
+
+        plexVariablesApi = registration.getProvider();
+
+        subscription = plexVariablesApi.subscribe(this, change -> {
+            getLogger().info(
+                    change.variable()
+                            + ": "
+                            + change.oldValue().orElse("<unset>")
+                            + " -> "
+                            + change.newValue().orElse("<unset>")
+            );
+        });
     }
 
-    @EventHandler
-    public void onJoin(PlayerJoinEvent event) {
-        api.addStoredPlayerValue(event.getPlayer().getUniqueId(), "score", BigDecimal.ONE)
-                .thenAccept(result -> {
-                    if (!result.success()) getLogger().warning("Score add failed: " + result.status());
-                }).exceptionally(failure -> {
-                    getLogger().warning("Score add could not complete");
-                    return null;
-                });
+    public void rewardPlayer(org.bukkit.entity.Player player) {
+        java.util.UUID playerId = player.getUniqueId();
+        String playerName = player.getName();
+        plexVariablesApi.addStoredPlayerValue(
+                playerId,
+                "gems",
+                new BigDecimal("100")
+        ).thenAccept(result -> {
+            if (!result.success()) {
+                getLogger().warning(
+                        "Could not reward "
+                                + playerName
+                                + ": "
+                                + result.status()
+                );
+            }
+        });
     }
 
     @Override
     public void onDisable() {
-        if (subscription != null) subscription.close();
-        subscription = null;
-        api = null;
+        if (subscription != null) {
+            subscription.close();
+            subscription = null;
+        }
     }
 }
 ```
 
-## Compatibility and verification
+Owner-aware subscriptions are automatically removed when the plugin disables, but explicitly closing a retained handle is still safe.
 
-No configuration or database migration is required. Existing commands, permissions, placeholders, and variable behavior remain available. Pending storage work drains under the existing bounded shutdown timeout; new work is rejected during shutdown. If that timeout expires, queued operations that never started complete with STORAGE_UNAVAILABLE (a mutation result or ReadException for reads). An already committed mutation retains its successful result. Tests use real temporary SQLite databases for persistence, failure triggers, concurrent additions, restart, and schema checks. Automated lifecycle tests use the real Bukkit SimpleServicesManager with mocked event plumbing. A live Paper integration test is a separate check and has not been performed for this change.
+## Provider Lifecycle
+
+New work is rejected during provider shutdown. Pending storage work drains within the existing bounded shutdown timeout. If that timeout expires, queued operations that never started complete with `STORAGE_UNAVAILABLE` (a mutation result, or `ReadException` for reads). An already committed mutation retains its successful result.
+
+Owner subscriptions cannot be recreated during the owner's disable event. Provider shutdown closes all subscriptions. Closing a subscription releases retained owner and callback references; a callback already acquired for delivery may finish. Reacquire the service and register fresh subscriptions after the provider is enabled again.
+
+## Compatibility
+
+PlexVariables 1.0.1 keeps the existing:
+
+- variable configuration format
+- PlaceholderAPI placeholders
+- commands and aliases
+- permissions
+- player/global stored data
+- SQLite schema
+
+No database or configuration migration is required from PlexVariables 1.0.0.
+
+## API Stability
+
+The public API was introduced in PlexVariables 1.0.1.
+
+Plugins should depend only on types exposed through `dev.plex.plexvariables.api` and obtain the service through Bukkit's `ServicesManager`.
+
+Do not depend on implementation packages such as:
+
+```text
+dev.plex.plexvariables.implementation
+dev.plex.plexvariables.storage
+dev.plex.plexvariables.variable
+dev.plex.plexvariables.config
+```
+
+Internal implementation packages may change independently of the public API.
+
+## Quick Reference
+
+| Operation | Method |
+| --- | --- |
+| Find variable metadata | `variable(String)` |
+| Resolve variable | `resolve(OfflinePlayer, String)` |
+| Read player override | `getStoredPlayerValue(UUID, String)` |
+| Read global override | `getStoredGlobalValue(String)` |
+| Set player value | `setStoredPlayerValue(UUID, String, String)` |
+| Set global value | `setStoredGlobalValue(String, String)` |
+| Add player value | `addStoredPlayerValue(UUID, String, BigDecimal)` |
+| Add global value | `addStoredGlobalValue(String, BigDecimal)` |
+| Reset player value | `resetStoredPlayerValue(UUID, String)` |
+| Reset global value | `resetStoredGlobalValue(String)` |
+| Subscribe with owner | `subscribe(Plugin, Consumer<VariableChange>)` |
+| Subscribe manually | `subscribe(Consumer<VariableChange>)` |
+
+All stored mutations also provide overloads accepting `MutationContext`.
+
+## Support
+
+When reporting an API issue, include:
+
+- PlexVariables version
+- Paper version
+- Java version
+- the relevant API method
+- the returned mutation status or exception
+- a minimal reproduction if possible
+
+Do not include private server credentials, database files, tokens, or unrelated sensitive data.

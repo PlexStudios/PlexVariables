@@ -4,6 +4,8 @@ All notable changes to PlexVariables will be documented in this file.
 
 ## 1.0.1
 
+**Beta / pre-release.** Manual Paper testing is still pending; automated validation results are listed below.
+
 ### Added
 - Public API version 1 through Bukkit ServicesManager with definition lookup, existing resolver access, explicit player/global persisted reads, and asynchronous set/add/reset operations.
 - Immutable mutation context, result statuses, and raw change records. All mutation methods include simple context-free overloads.
@@ -11,6 +13,7 @@ All notable changes to PlexVariables will be documented in this file.
 - API documentation with ExamplePlugin examples and regression coverage for API contracts, real SQLite failures/commit visibility, subscription lifecycle, commands, placeholders, restart, and unchanged schema.
 
 ### Changed
+- Expanded `docs/API.md` with the supplied developer guide, thread-safe example handling, read failure statuses, and provider shutdown guidance.
 - Shared command/API mutations notify once after successful commit and cache update, only when effective stored text changes. Successful raw override transitions still return SUCCESS when a default makes notifications unnecessary.
 - Numeric additions serialize persisted reads and writes; strict API missing/nonnumeric handling preserves the existing command zero-start behavior.
 - Provider implementation resides outside the public API package. No storage managers, SQLite classes, repositories, or caches are exposed by the service interface.
