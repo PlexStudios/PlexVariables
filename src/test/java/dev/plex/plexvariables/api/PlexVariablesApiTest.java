@@ -344,4 +344,38 @@ class PlexVariablesApiTest {
         assertThrows(NullPointerException.class, () -> api.addStoredGlobalValue("text", null));
         assertThrows(NullPointerException.class, () -> api.resetStoredGlobalValue("text", null));
     }
+
+    @Test
+    void forcedShutdownSettlesQueuedOperationsWithoutMisreportingCommittedWrite() throws Exception {
+        var config = new YamlConfiguration();
+        config.set("settings.storage.shutdown-timeout-seconds", 1);
+        var settings = PluginSettings.from(config);
+        var separate = new StorageManager(directory.resolve("shutdown.db"), () -> settings, Logger.getAnonymousLogger());
+        separate.init();
+        var provider = new DefaultPlexVariablesApi(() -> state, resolver, separate, () -> true);
+        CountDownLatch entered = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        separate.subscribe(change -> {
+            entered.countDown();
+            try {
+                release.await(10, TimeUnit.SECONDS);
+            } catch (InterruptedException exception) {
+                Thread.currentThread().interrupt();
+            }
+        });
+        try {
+            var committed = provider.setStoredGlobalValue("total", "1");
+            assertTrue(entered.await(5, TimeUnit.SECONDS));
+            var queuedWrite = provider.setStoredGlobalValue("total", "2");
+            var queuedRead = provider.getStoredGlobalValue("total");
+            separate.shutdown();
+            assertEquals(SUCCESS, committed.get(5, TimeUnit.SECONDS).status());
+            assertEquals(STORAGE_UNAVAILABLE, queuedWrite.get(5, TimeUnit.SECONDS).status());
+            var failure = assertThrows(ExecutionException.class, () -> queuedRead.get(5, TimeUnit.SECONDS));
+            assertEquals(STORAGE_UNAVAILABLE, ((PlexVariablesApi.ReadException) failure.getCause()).status());
+        } finally {
+            release.countDown();
+            separate.shutdown();
+        }
+    }
 }

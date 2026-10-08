@@ -326,8 +326,7 @@ public final class PlexVariablesCommand implements TabExecutor {
                         "value", newValStr
                 ));
             }).exceptionally(ex -> {
-                String msg = ex.getCause() != null ? ex.getCause().getMessage() : ex.getMessage();
-                current.messages().send(sender, "stored-error", Map.of("error", msg));
+                storedAddFailed(sender, current, ex);
                 return null;
             });
         } else {
@@ -351,13 +350,20 @@ public final class PlexVariablesCommand implements TabExecutor {
                         "value", newValStr
                 ));
             }).exceptionally(ex -> {
-                String msg = ex.getCause() != null ? ex.getCause().getMessage() : ex.getMessage();
-                current.messages().send(sender, "stored-error", Map.of("error", msg));
+                storedAddFailed(sender, current, ex);
                 return null;
             });
         }
     }
 
+    private void storedAddFailed(CommandSender sender, PluginState current, Throwable failure) {
+        Throwable cause = failure.getCause() != null ? failure.getCause() : failure;
+        if (cause instanceof NumberFormatException) {
+            current.messages().send(sender, "stored-non-numeric");
+        } else {
+            current.messages().send(sender, "stored-error", Map.of("error", cause.getMessage()));
+        }
+    }
     private void get(CommandSender sender, PluginState current, String label, String[] args) {
         if (args.length < 2) {
             current.messages().send(sender, "stored-usage-get", Map.of("label", label));

@@ -11,6 +11,7 @@ import org.bukkit.event.EventHandler;
 import org.bukkit.event.HandlerList;
 import org.bukkit.event.Listener;
 import org.bukkit.event.server.PluginDisableEvent;
+import org.bukkit.event.server.PluginEnableEvent;
 import org.bukkit.plugin.Plugin;
 import org.bukkit.plugin.ServicePriority;
 
@@ -18,6 +19,9 @@ import java.math.BigDecimal;
 import java.util.Locale;
 import java.util.Objects;
 import java.util.Optional;
+import java.util.Collections;
+import java.util.Set;
+import java.util.WeakHashMap;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.function.BooleanSupplier;
@@ -31,6 +35,7 @@ public final class DefaultPlexVariablesApi implements PlexVariablesApi, Listener
     private final BooleanSupplier serverThread;
     private Plugin serviceOwner;
     private boolean closed;
+    private final Set<Plugin> disabledOwners = Collections.newSetFromMap(new WeakHashMap<>());
 
     public DefaultPlexVariablesApi(Supplier<PluginState> state, VariableResolver resolver,
                                    StorageManager storage, BooleanSupplier serverThread) {
@@ -154,10 +159,10 @@ public final class DefaultPlexVariablesApi implements PlexVariablesApi, Listener
     }
 
     @Override
-    public Subscription subscribe(Plugin owner, Consumer<VariableChange> listener) {
+    public synchronized Subscription subscribe(Plugin owner, Consumer<VariableChange> listener) {
         Objects.requireNonNull(owner, "owner");
         if (!serverThread.getAsBoolean()) throw new IllegalStateException("Owned subscriptions require the server thread");
-        if (!owner.isEnabled()) throw new IllegalArgumentException("Subscription owner is disabled");
+        if (!owner.isEnabled() || disabledOwners.contains(owner)) throw new IllegalArgumentException("Subscription owner is disabled");
         return storage.subscribe(owner, listener);
     }
 
@@ -175,8 +180,14 @@ public final class DefaultPlexVariablesApi implements PlexVariablesApi, Listener
     }
 
     @EventHandler
-    public void onPluginDisable(PluginDisableEvent event) {
+    public synchronized void onPluginDisable(PluginDisableEvent event) {
+        disabledOwners.add(event.getPlugin());
         storage.unsubscribeOwner(event.getPlugin());
+    }
+
+    @EventHandler
+    public synchronized void onPluginEnable(PluginEnableEvent event) {
+        disabledOwners.remove(event.getPlugin());
     }
 
     @Override
@@ -184,6 +195,7 @@ public final class DefaultPlexVariablesApi implements PlexVariablesApi, Listener
         if (closed) return;
         closed = true;
         storage.closeSubscriptions();
+        disabledOwners.clear();
         HandlerList.unregisterAll(this);
         if (serviceOwner != null) {
             serviceOwner.getServer().getServicesManager().unregister(PlexVariablesApi.class, this);

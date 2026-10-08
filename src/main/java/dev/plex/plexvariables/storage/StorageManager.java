@@ -79,10 +79,11 @@ public final class StorageManager {
             return CompletableFuture.completedFuture(null);
         }
         long version = playerCache.markLoading(uuid);
-        return CompletableFuture.runAsync(() -> {
+        return this.<Void>submit(() -> {
             Map<String, String> data = sqliteStorage.loadPlayerVariables(uuid);
             playerCache.setLoadedData(uuid, data, version);
-        }, executor).exceptionally(ex -> {
+            return null;
+        }).exceptionally(ex -> {
             logger.warning("Failed to load stored player data for UUID " + uuid + ": " + ex.getMessage());
             return null;
         });
@@ -151,9 +152,9 @@ public final class StorageManager {
 
     private VariableChange requireChange(MutationResult result) {
         if (!result.success()) {
+            if (result.status() == Status.NON_NUMERIC) throw new NumberFormatException("Stored value is not numeric");
             String message = switch (result.status()) {
                 case MISSING_VALUE -> "No stored value or configured numeric default is available";
-                case NON_NUMERIC -> "Stored value is not numeric";
                 case VALUE_TOO_LONG -> "Value length exceeds limit of " + settingsSupplier.get().maxStorageValueLength() + " characters";
                 case STORAGE_UNAVAILABLE -> "Storage is shutting down";
                 default -> "Failed to persist stored value";
@@ -327,17 +328,46 @@ public final class StorageManager {
 
     private <T> CompletableFuture<T> submit(Supplier<T> task) {
         if (shuttingDown) return CompletableFuture.failedFuture(new UnavailableException());
+        StorageTask<T> submitted = new StorageTask<>(task);
         try {
-            return CompletableFuture.supplyAsync(task, executor);
+            executor.execute(submitted);
         } catch (java.util.concurrent.RejectedExecutionException exception) {
-            return CompletableFuture.failedFuture(new UnavailableException());
+            submitted.reject();
+        }
+        return submitted.future;
+    }
+
+    private static final class StorageTask<T> implements Runnable {
+        private final Supplier<T> operation;
+        private final CompletableFuture<T> future = new CompletableFuture<>();
+
+        private StorageTask(Supplier<T> operation) {
+            this.operation = operation;
+        }
+
+        @Override
+        public void run() {
+            try {
+                future.complete(operation.get());
+            } catch (Throwable failure) {
+                future.completeExceptionally(failure);
+            }
+        }
+
+        private void reject() {
+            future.completeExceptionally(new UnavailableException());
         }
     }
 
+    private void forceShutdown() {
+        for (Runnable task : executor.shutdownNow()) {
+            if (task instanceof StorageTask<?> pending) pending.reject();
+        }
+    }
 
     public CompletableFuture<Map<String, String>> fetchPlayerVariablesDirect(UUID uuid) {
         if (uuid == null) return CompletableFuture.completedFuture(Map.of());
-        return CompletableFuture.supplyAsync(() -> sqliteStorage.loadPlayerVariables(uuid), executor);
+        return submit(() -> sqliteStorage.loadPlayerVariables(uuid));
     }
 
     public GlobalVariableCache globalCache() {
@@ -362,10 +392,10 @@ public final class StorageManager {
         try {
             if (!executor.awaitTermination(timeoutSeconds, TimeUnit.SECONDS)) {
                 logger.warning("Storage executor did not terminate in " + timeoutSeconds + " seconds, forcing shutdown");
-                executor.shutdownNow();
+                forceShutdown();
             }
         } catch (InterruptedException e) {
-            executor.shutdownNow();
+            forceShutdown();
             Thread.currentThread().interrupt();
         } finally {
             sqliteStorage.close();

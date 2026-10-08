@@ -17,9 +17,17 @@ All notable changes to PlexVariables will be documented in this file.
 - Project and packaged plugin version advance to 1.0.1. Existing configuration, variable files, permissions, commands, placeholders, and SQLite schema remain compatible; no migration is required.
 - Subscriber failure diagnostics remain redacted and bounded to the first failure per registration.
 
+### Fixed
+- Owner subscriptions cannot be recreated by later disable-event listeners while the owner still reports enabled; re-enable starts a valid new subscription lifecycle.
+- Forced storage shutdown completes queued, unstarted operations instead of leaving their futures pending, while committed writes retain successful results.
+- Command additions retain the configured nonnumeric error message for invalid persisted values and defaults in both scopes.
+- Shutdown and failed-publication tests assert callback counts outside subscriber code, avoiding swallowed assertion failures.
+
 ### Validation
 - Fresh baseline clean/test/build passed with Java 21: 99 tests, zero failures/errors/skips.
-- Implementation regression suite passed: 124 tests, zero failures/errors/skips. Final release clean build and artifact audits are recorded after execution.
+- Final uncached Java 21 clean/test/build passed: 128 tests, zero failures/errors/skips; all build tasks executed. This adds 29 tests to the 99-test workspace baseline.
+- Packaged plugin.yml reports 1.0.1. SQLite JDBC is included; provided Paper and PlaceholderAPI classes are excluded. Runtime dependencies remain unchanged.
+- Case-insensitive project and artifact audits returned zero prohibited consumer references. Whitespace checks passed and no Java source line comments were introduced.
 - Live Paper integration tests have not been performed.
 
 ## [1.0.0] - 2026-10-01

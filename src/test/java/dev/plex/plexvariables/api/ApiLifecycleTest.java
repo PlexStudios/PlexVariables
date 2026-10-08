@@ -12,6 +12,7 @@ import org.bukkit.Server;
 import org.bukkit.Bukkit;
 import org.bukkit.configuration.file.YamlConfiguration;
 import org.bukkit.event.server.PluginDisableEvent;
+import org.bukkit.event.server.PluginEnableEvent;
 import org.bukkit.plugin.Plugin;
 import org.bukkit.plugin.PluginManager;
 import org.bukkit.plugin.SimpleServicesManager;
@@ -27,6 +28,7 @@ import java.util.List;
 import java.util.Map;
 import java.util.concurrent.atomic.AtomicBoolean;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.atomic.AtomicInteger;
 import java.util.concurrent.CountDownLatch;
 import java.util.concurrent.TimeUnit;
 import java.util.logging.Logger;
@@ -97,10 +99,13 @@ class ApiLifecycleTest {
         when(server.getServicesManager()).thenReturn(services);
         doThrow(new IllegalStateException("publication failure")).when(services)
                 .register(eq(PlexVariablesApi.class), same(api), same(owner), any());
-        api.subscribe(change -> fail("Closed provider must not notify"));
+        AtomicInteger callbacks = new AtomicInteger();
+        api.subscribe(change -> callbacks.incrementAndGet());
         assertThrows(IllegalStateException.class, () -> api.register(owner));
         assertNull(services.load(PlexVariablesApi.class));
         assertThrows(IllegalStateException.class, () -> api.subscribe(change -> { }));
+        storage.setGlobalValue("total", "1").join();
+        assertEquals(0, callbacks.get());
     }
 
     @Test
@@ -150,10 +155,12 @@ class ApiLifecycleTest {
 
     @Test
     void shutdownClearsOwnedAndManualCallbacks() throws Exception {
-        api.subscribe(owner, change -> fail("owned subscription retained"));
-        api.subscribe(change -> fail("manual subscription retained"));
+        AtomicInteger callbacks = new AtomicInteger();
+        api.subscribe(owner, change -> callbacks.incrementAndGet());
+        api.subscribe(change -> callbacks.incrementAndGet());
         api.close();
         storage.setGlobalValue("total", "1").get();
+        assertEquals(0, callbacks.get());
         assertThrows(IllegalStateException.class, () -> api.subscribe(owner, change -> { }));
         assertThrows(IllegalStateException.class, () -> api.subscribe(change -> { }));
     }
@@ -194,6 +201,24 @@ class ApiLifecycleTest {
         } finally {
             release.countDown();
             handle.close();
+        }
+    }
+
+    @Test
+    void registrationAfterDisableHandlerIsRejectedWhileOwnerStillReportsEnabled() {
+        api.onPluginDisable(new PluginDisableEvent(owner));
+        assertTrue(owner.isEnabled());
+        assertThrows(IllegalArgumentException.class, () -> api.subscribe(owner, change -> { }));
+    }
+
+    @Test
+    void legitimateOwnerReenableAllowsNewSubscriptions() throws Exception {
+        api.onPluginDisable(new PluginDisableEvent(owner));
+        api.onPluginEnable(new PluginEnableEvent(owner));
+        AtomicInteger callbacks = new AtomicInteger();
+        try (var subscription = api.subscribe(owner, change -> callbacks.incrementAndGet())) {
+            api.setStoredGlobalValue("total", "1").get();
+            assertEquals(1, callbacks.get());
         }
     }
 }

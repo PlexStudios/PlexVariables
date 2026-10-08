@@ -249,6 +249,45 @@ class PlexVariablesCommandTest {
         }
     }
 
+    @Test
+    void nonnumericStoredAndDefaultValuesRetainConfiguredCommandMessage() throws Exception {
+        var storage = new StorageManager(tempDir.resolve("invalid.db"), PluginSettings::defaults, Logger.getAnonymousLogger());
+        storage.init();
+        try {
+            var state = state(Map.of(
+                    "player_value", VariableDefinition.ofStored("player_value", StoredVariableScope.PLAYER, "invalid", "test.yml"),
+                    "global_value", VariableDefinition.ofStored("global_value", StoredVariableScope.GLOBAL, "invalid", "test.yml")));
+            Server server = mock(Server.class);
+            Player player = mock(Player.class);
+            UUID id = UUID.randomUUID();
+            when(player.getUniqueId()).thenReturn(id);
+            when(player.getName()).thenReturn("Alex");
+            when(server.getPlayerExact("Alex")).thenReturn(player);
+            var resolver = new VariableResolver(() -> state, (target, text) -> text, storage, Logger.getAnonymousLogger());
+            var command = new PlexVariablesCommand(() -> state, resolver, null, storage, server, Logger.getAnonymousLogger());
+            var messages = new ArrayList<String>();
+            var sender = sender(messages);
+            for (String variable : List.of("player_value", "global_value")) {
+                String target = variable.equals("player_value") ? "Alex" : "global";
+                var scope = target.equals("Alex") ? PlexVariablesApi.Scope.PLAYER : PlexVariablesApi.Scope.GLOBAL;
+                UUID uuid = scope == PlexVariablesApi.Scope.PLAYER ? id : null;
+                for (boolean stored : new boolean[]{false, true}) {
+                    if (stored) {
+                        if (uuid == null) storage.setGlobalValue(variable, "garbage").get();
+                        else storage.setPlayerValue(uuid, variable, "garbage").get();
+                    }
+                    messages.clear();
+                    command.onCommand(sender, null, "pv", new String[]{"add", variable, target, "1"});
+                    storage.readStored(variable, scope, uuid).get(5, TimeUnit.SECONDS);
+                    assertTrue(messages.stream().anyMatch(message -> message.contains("Stored value or added amount is not a valid number")));
+                    assertFalse(messages.stream().anyMatch(message -> message.contains("Storage operation failed")));
+                }
+            }
+        } finally {
+            storage.shutdown();
+        }
+    }
+
     private static CommandSender sender(ArrayList<String> output) {
         CommandSender sender = mock(CommandSender.class);
         when(sender.hasPermission(anyString())).thenReturn(true);
