@@ -1,6 +1,10 @@
 package dev.plex.plexvariables;
 
 import dev.plex.plexvariables.command.PlexVariablesCommand;
+import dev.plex.plexvariables.api.PlexVariablesApi;
+import dev.plex.plexvariables.implementation.DefaultPlexVariablesApi;
+import org.bukkit.Bukkit;
+import org.bukkit.plugin.ServicePriority;
 import dev.plex.plexvariables.config.ConfigurationLoader;
 import dev.plex.plexvariables.config.PluginState;
 import dev.plex.plexvariables.config.ReloadService;
@@ -58,6 +62,9 @@ public final class PlexVariables extends JavaPlugin {
                 expansion = null;
                 throw new IllegalStateException("Could not register the 'plexvar' expansion; check for an identifier conflict.");
             }
+            getServer().getServicesManager().register(PlexVariablesApi.class,
+                    new DefaultPlexVariablesApi(state::get, resolver, storageManager, Bukkit::isPrimaryThread),
+                    this, ServicePriority.Normal);
             PluginState loaded = state.get();
             getLogger().info("Loaded " + loaded.variables().size() + " variables from "
                     + loaded.filesLoaded() + " files in " + (System.nanoTime() - started) / 1_000_000 + "ms.");
@@ -88,6 +95,7 @@ public final class PlexVariables extends JavaPlugin {
 
     @Override
     public void onDisable() {
+        getServer().getServicesManager().unregisterAll(this);
         if (reloadService != null) {
             reloadService.close();
         }

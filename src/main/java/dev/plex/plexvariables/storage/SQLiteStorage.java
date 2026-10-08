@@ -129,6 +129,22 @@ public final class SQLiteStorage {
         return result;
     }
 
+    public String readVariable(String variableId, UUID playerId) {
+        String sql = playerId == null
+                ? "SELECT value FROM global_variables WHERE variable_id = ?"
+                : "SELECT value FROM player_variables WHERE variable_id = ? AND uuid = ?";
+        try (PreparedStatement statement = connection.prepareStatement(sql)) {
+            statement.setString(1, variableId);
+            if (playerId != null) statement.setString(2, playerId.toString());
+            try (ResultSet result = statement.executeQuery()) {
+                return result.next() ? result.getString("value") : null;
+            }
+        } catch (SQLException exception) {
+            throw new StorageException("Failed to read stored variable '" + variableId + "'", exception);
+        }
+    }
+
+
     public void savePlayerVariable(UUID uuid, String variableId, String value, long timestamp) {
         Objects.requireNonNull(uuid, "uuid");
         Objects.requireNonNull(variableId, "variableId");

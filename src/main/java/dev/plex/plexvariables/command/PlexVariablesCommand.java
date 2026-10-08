@@ -18,6 +18,7 @@ import org.bukkit.entity.Player;
 import org.jetbrains.annotations.NotNull;
 
 import java.math.BigDecimal;
+import dev.plex.plexvariables.api.PlexVariablesApi.Scope;
 import java.util.ArrayList;
 import java.util.Arrays;
 import java.util.Comparator;
@@ -316,21 +317,8 @@ public final class PlexVariablesCommand implements TabExecutor {
                 current.messages().send(sender, "stored-scope-mismatch-global", Map.of("variable", def.id()));
                 return;
             }
-            String currentVal = storageManager.getGlobalValue(def.id());
-            if (currentVal == null) currentVal = def.defaultValue() != null ? def.defaultValue() : "0";
-
-            BigDecimal currentNum;
-            try {
-                currentNum = new BigDecimal(currentVal.trim());
-            } catch (NumberFormatException e) {
-                current.messages().send(sender, "stored-non-numeric");
-                return;
-            }
-
-            BigDecimal resultNum = currentNum.add(delta);
-            String newValStr = resultNum.stripTrailingZeros().toPlainString();
-
-            storageManager.setGlobalValue(def.id(), newValStr).thenRun(() -> {
+            storageManager.addStored(def.id(), Scope.GLOBAL, null, delta, def.defaultValue() == null ? "0" : def.defaultValue(), null).thenAccept(change -> {
+                String newValStr = change.newValue().orElseThrow();
                 current.messages().send(sender, "stored-add-success", Map.of(
                         "amount", args[3],
                         "variable", def.id(),
@@ -353,22 +341,9 @@ public final class PlexVariablesCommand implements TabExecutor {
                 return;
             }
 
-            String currentVal = storageManager.getPlayerValue(targetPlayer.getUniqueId(), def.id());
-            if (currentVal == null) currentVal = def.defaultValue() != null ? def.defaultValue() : "0";
-
-            BigDecimal currentNum;
-            try {
-                currentNum = new BigDecimal(currentVal.trim());
-            } catch (NumberFormatException e) {
-                current.messages().send(sender, "stored-non-numeric");
-                return;
-            }
-
-            BigDecimal resultNum = currentNum.add(delta);
-            String newValStr = resultNum.stripTrailingZeros().toPlainString();
             String displayTarget = targetPlayer.getName() != null ? targetPlayer.getName() : targetName;
-
-            storageManager.setPlayerValue(targetPlayer.getUniqueId(), def.id(), newValStr).thenRun(() -> {
+            storageManager.addStored(def.id(), Scope.PLAYER, targetPlayer.getUniqueId(), delta, def.defaultValue() == null ? "0" : def.defaultValue(), null).thenAccept(change -> {
+                String newValStr = change.newValue().orElseThrow();
                 current.messages().send(sender, "stored-add-success", Map.of(
                         "amount", args[3],
                         "variable", def.id(),
