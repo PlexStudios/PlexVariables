@@ -1,4 +1,4 @@
-# PlexVariables
+# PlexVariables 1.0.1
 
 > Build reusable PlaceholderAPI variables with conditions, expressions, nesting, and persistent storage — without writing Java for every value.
 
@@ -47,7 +47,7 @@ Variables can reference other variables, allowing small definitions to be compos
 - **Nested Variable Composition**: Variables can reference other PlexVariables and external PlaceholderAPI placeholders.
 - **Cycle & Depth Protection**: Automatic detection of circular references, stack depth limits (default 10), and total expansion work caps.
 - **Zero Disk Overhead on Hot Paths**: Stored variables are served directly from thread-safe in-memory caches.
-- **Asynchronous Persistence**: SQLite writes are queued and flushed asynchronously in batches with atomic versions.
+- **Asynchronous Persistence**: SQLite reads and mutations are serialized on a dedicated storage executor; placeholder resolution uses in-memory caches.
 - **Safe Mathematical AST Evaluator**: No arbitrary code execution; supports operators, parentheses, and math functions.
 - **Transactional Reloads**: Safe configuration reload retains the current working state if newly loaded files have syntax errors.
 - **In-Depth Debugging & Tracing**: `/pv test` gives step-by-step resolution traces showing intermediate values and token timings.
@@ -230,7 +230,7 @@ Permission `plexvariables.admin` grants all sub-permissions by default.
 
 ### Installation
 1. Install [PlaceholderAPI](https://www.spigotmc.org/resources/placeholderapi.6245/).
-2. Place `PlexVariables-1.0.0.jar` in your server's `plugins/` directory.
+2. Place `PlexVariables-1.0.1.jar` in your server's `plugins/` directory.
 3. Start or restart the server.
 4. Customize your variables in `plugins/PlexVariables/variables/`.
 5. Run `/pv reload` to apply updates without server downtime.
@@ -241,7 +241,7 @@ PlexVariables uses Gradle. Build with the included wrapper:
 - **macOS / Linux**: `./gradlew clean build`
 - **Windows**: `.\gradlew.bat clean build`
 
-The compiled shaded artifact is output to `build/libs/PlexVariables-1.0.0.jar`.
+The compiled shaded artifact is output to `build/libs/PlexVariables-1.0.1.jar`.
 
 ---
 
@@ -279,3 +279,9 @@ Developed by **Applex** as part of **Plex Studios**.
 - [Plex Studios](https://github.com/PlexStudios)
 - [PlexDocs](https://github.com/PlexStudios/PlexDocs)
 - [Website](https://applex.oriko.lk)
+
+## Developer API
+
+PlexVariables 1.0.1 introduces public API version 1 through Bukkit ServicesManager. Any third-party plugin can resolve variables, read persisted player/global overrides, and asynchronously set, add, or reset values. Optional immutable mutation contexts and closeable, owner-aware change subscriptions are included. Existing configurations and SQLite databases require no migration.
+
+See [the public API guide](docs/API.md) for ExamplePlugin integration, result handling, subscription ownership, and callback threading.
