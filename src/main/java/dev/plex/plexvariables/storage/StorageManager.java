@@ -1,6 +1,7 @@
 package dev.plex.plexvariables.storage;
 
 import dev.plex.plexvariables.config.PluginSettings;
+import org.bukkit.plugin.Plugin;
 import dev.plex.plexvariables.api.PlexVariablesApi.Scope;
 import dev.plex.plexvariables.api.PlexVariablesApi.MutationContext;
 import dev.plex.plexvariables.api.PlexVariablesApi.MutationResult;
@@ -36,7 +37,8 @@ public final class StorageManager {
 
     private final ExecutorService executor;
     private volatile boolean shuttingDown = false;
-    private final CopyOnWriteArrayList<Consumer<VariableChange>> listeners = new CopyOnWriteArrayList<>();
+    private final CopyOnWriteArrayList<Registration> listeners = new CopyOnWriteArrayList<>();
+    private boolean subscriptionsClosed;
 
     public StorageManager(Path databasePath, Supplier<PluginSettings> settingsSupplier, Logger logger) {
         this.databasePath = Objects.requireNonNull(databasePath, "databasePath");
@@ -205,7 +207,7 @@ public final class StorageManager {
             String oldEffective = old == null ? defaultValue : old;
             String newEffective = value == null ? defaultValue : value;
             if (!Objects.equals(oldEffective, newEffective)) {
-                for (Consumer<VariableChange> listener : listeners) listener.accept(change);
+                for (Registration listener : listeners) listener.accept(change);
             }
             return new MutationResult(Status.SUCCESS, Optional.of(change));
         }).handle((result, failure) -> {
@@ -242,23 +244,80 @@ public final class StorageManager {
             super("Storage is shutting down");
         }
     }
-    public synchronized Subscription subscribe(Consumer<VariableChange> listener) {
-        Objects.requireNonNull(listener, "listener");
-        if (shuttingDown) throw new IllegalStateException("Storage is shutting down");
-        java.util.concurrent.atomic.AtomicBoolean failureLogged = new java.util.concurrent.atomic.AtomicBoolean();
-        Consumer<VariableChange> registration = change -> {
-            try {
-                listener.accept(change);
-            } catch (RuntimeException exception) {
-                if (failureLogged.compareAndSet(false, true)) {
-                    logger.warning("Stored variable subscriber failed (" + exception.getClass().getName() + ")");
-                }
-            }
-        };
-        listeners.add(registration);
-        return () -> listeners.remove(registration);
+    public Subscription subscribe(Consumer<VariableChange> listener) {
+        return subscribe(null, listener);
     }
 
+    public synchronized Subscription subscribe(Plugin owner, Consumer<VariableChange> listener) {
+        Objects.requireNonNull(listener, "listener");
+        if (shuttingDown || subscriptionsClosed) throw new IllegalStateException("Subscriptions are closed");
+        Registration registration = new Registration(owner, listener, logger);
+        registration.removal = () -> listeners.remove(registration);
+        listeners.add(registration);
+        return registration;
+    }
+
+    public synchronized void unsubscribeOwner(Plugin owner) {
+        for (Registration registration : listeners) {
+            if (registration.ownedBy(owner)) registration.close();
+        }
+    }
+
+    public synchronized void closeSubscriptions() {
+        subscriptionsClosed = true;
+        for (Registration registration : listeners) registration.close();
+        listeners.clear();
+    }
+
+    static final class Registration implements Subscription {
+        Plugin owner;
+        Consumer<VariableChange> listener;
+        Runnable removal;
+        Logger logger;
+        private boolean failureLogged;
+
+        private Registration(Plugin owner, Consumer<VariableChange> listener, Logger logger) {
+            this.owner = owner;
+            this.listener = listener;
+            this.logger = logger;
+        }
+
+        synchronized boolean ownedBy(Plugin plugin) {
+            return owner == plugin;
+        }
+
+        void accept(VariableChange change) {
+            Consumer<VariableChange> callback;
+            Logger diagnostics;
+            synchronized (this) {
+                callback = listener;
+                diagnostics = logger;
+            }
+            if (callback == null) return;
+            try {
+                callback.accept(change);
+            } catch (Throwable exception) {
+                synchronized (this) {
+                    if (failureLogged) return;
+                    failureLogged = true;
+                }
+                diagnostics.warning("Stored variable subscriber failed (" + exception.getClass().getName() + ")");
+            }
+        }
+
+        @Override
+        public void close() {
+            Runnable remove;
+            synchronized (this) {
+                remove = removal;
+                removal = null;
+                listener = null;
+                owner = null;
+                logger = null;
+            }
+            if (remove != null) remove.run();
+        }
+    }
     private void validateTarget(String variable, Scope scope, UUID playerId) {
         Objects.requireNonNull(variable, "variable");
         Objects.requireNonNull(scope, "scope");
@@ -296,7 +355,7 @@ public final class StorageManager {
     public void shutdown() {
         synchronized (this) {
             shuttingDown = true;
-            listeners.clear();
+            closeSubscriptions();
         }
         int timeoutSeconds = settingsSupplier.get().storageShutdownTimeoutSeconds();
         executor.shutdown();

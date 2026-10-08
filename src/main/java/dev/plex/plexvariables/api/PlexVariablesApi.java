@@ -1,6 +1,7 @@
 package dev.plex.plexvariables.api;
 
 import org.bukkit.OfflinePlayer;
+import org.bukkit.plugin.Plugin;
 
 import java.math.BigDecimal;
 import java.util.Map;
@@ -119,4 +120,6 @@ public interface PlexVariablesApi {
     CompletableFuture<MutationResult> resetStoredGlobalValue(String variable, MutationContext context);
 
     Subscription subscribe(Consumer<VariableChange> listener);
+
+    Subscription subscribe(Plugin owner, Consumer<VariableChange> listener);
 }

@@ -7,6 +7,12 @@ import dev.plex.plexvariables.variable.VariableDefinition;
 import dev.plex.plexvariables.variable.VariableResolver;
 import dev.plex.plexvariables.variable.VariableType;
 import org.bukkit.OfflinePlayer;
+import org.bukkit.event.EventHandler;
+import org.bukkit.event.HandlerList;
+import org.bukkit.event.Listener;
+import org.bukkit.event.server.PluginDisableEvent;
+import org.bukkit.plugin.Plugin;
+import org.bukkit.plugin.ServicePriority;
 
 import java.math.BigDecimal;
 import java.util.Locale;
@@ -18,11 +24,13 @@ import java.util.function.BooleanSupplier;
 import java.util.function.Consumer;
 import java.util.function.Supplier;
 
-public final class DefaultPlexVariablesApi implements PlexVariablesApi {
+public final class DefaultPlexVariablesApi implements PlexVariablesApi, Listener, AutoCloseable {
     private final Supplier<PluginState> state;
     private final VariableResolver resolver;
     private final StorageManager storage;
     private final BooleanSupplier serverThread;
+    private Plugin serviceOwner;
+    private boolean closed;
 
     public DefaultPlexVariablesApi(Supplier<PluginState> state, VariableResolver resolver,
                                    StorageManager storage, BooleanSupplier serverThread) {
@@ -143,6 +151,44 @@ public final class DefaultPlexVariablesApi implements PlexVariablesApi {
     @Override
     public Subscription subscribe(Consumer<VariableChange> listener) {
         return storage.subscribe(listener);
+    }
+
+    @Override
+    public Subscription subscribe(Plugin owner, Consumer<VariableChange> listener) {
+        Objects.requireNonNull(owner, "owner");
+        if (!serverThread.getAsBoolean()) throw new IllegalStateException("Owned subscriptions require the server thread");
+        if (!owner.isEnabled()) throw new IllegalArgumentException("Subscription owner is disabled");
+        return storage.subscribe(owner, listener);
+    }
+
+    public synchronized void register(Plugin owner) {
+        Objects.requireNonNull(owner, "owner");
+        if (closed || serviceOwner != null) throw new IllegalStateException("Provider is closed or already registered");
+        serviceOwner = owner;
+        try {
+            owner.getServer().getPluginManager().registerEvents(this, owner);
+            owner.getServer().getServicesManager().register(PlexVariablesApi.class, this, owner, ServicePriority.Normal);
+        } catch (RuntimeException exception) {
+            close();
+            throw exception;
+        }
+    }
+
+    @EventHandler
+    public void onPluginDisable(PluginDisableEvent event) {
+        storage.unsubscribeOwner(event.getPlugin());
+    }
+
+    @Override
+    public synchronized void close() {
+        if (closed) return;
+        closed = true;
+        storage.closeSubscriptions();
+        HandlerList.unregisterAll(this);
+        if (serviceOwner != null) {
+            serviceOwner.getServer().getServicesManager().unregister(PlexVariablesApi.class, this);
+            serviceOwner = null;
+        }
     }
 
     private VariableDefinition validate(String variable, Scope scope) {
