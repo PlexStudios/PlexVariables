@@ -250,8 +250,7 @@ The compiled shaded artifact is output to `build/libs/PlexVariables-1.0.1.jar`.
 ## Documentation
 
 - [PlexDocs](https://github.com/PlexStudios/PlexDocs)
-- [Acceptance Testing Guide](docs/TESTING.md)
-- [Release Checklist](docs/RELEASE_CHECKLIST.md)
+- [Developer API Guide](docs/API.md)
 - [GitHub Wiki](https://github.com/PlexStudios/PlexVariables/wiki)
 - [Issue Tracker](https://github.com/PlexStudios/PlexVariables/issues)
 
@@ -265,12 +264,10 @@ This repository is **source-available, not permissively open-source**. Redistrib
 
 ---
 
-## Contributing & Support
+## Support
 
-- Contributions are welcome when they fit the direction of PlexVariables. Please review [CONTRIBUTING.md](CONTRIBUTING.md) before submitting pull requests.
 - For bug reports and feature requests, use the repository issue forms.
 - For usage questions, consult [SUPPORT.md](SUPPORT.md).
-- Release history is maintained in [CHANGELOG.md](CHANGELOG.md).
 
 ---
 

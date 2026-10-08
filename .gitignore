@@ -30,3 +30,12 @@ replay_pid*
 
 .DS_Store
 Thumbs.db
+
+/AGENTS.md
+/.agents/
+/CHANGELOG.md
+/CONTRIBUTING.md
+/docs/superpowers/
+/src/test/
+/.github/PULL_REQUEST_TEMPLATE.md
+/.github/workflows/
