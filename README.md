@@ -6,7 +6,7 @@
 
 **Paper 1.21+ · Java 21 · PlaceholderAPI**
 
-PlexVariables is a configurable variable engine for Paper Minecraft servers. It allows server owners and developers to define custom PlaceholderAPI placeholders and dynamic stored variables in clean YAML files—without writing Java for every value.
+PlexVariables is a configurable variable engine for Paper Minecraft servers. It allows server owners and developers to define custom PlaceholderAPI placeholders and dynamic stored variables in clean YAML files without writing Java for every value.
 
 PlexVariables supports **static**, **conditional**, mathematical **expression**, and persistent **stored** variables. The expansion identifier is `plexvar`, so a variable named `kd_ratio` is available as `%plexvar_kd_ratio%`, while global stored variables can also be accessed via `%plexvar_global_<id>%`.
 
