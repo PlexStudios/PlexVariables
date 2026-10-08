@@ -57,11 +57,7 @@ public final class DefaultPlexVariablesApi implements PlexVariablesApi {
     }
 
     private CompletableFuture<Optional<String>> read(String variable, Scope scope, UUID playerId) {
-        return storage.readStored(validate(variable, scope).id(), scope, playerId).handle((value, failure) -> {
-            if (failure != null) throw new ReadException(storage.isShuttingDown()
-                    ? Status.STORAGE_UNAVAILABLE : Status.PERSISTENCE_FAILED);
-            return value;
-        });
+        return storage.readStored(validate(variable, scope).id(), scope, playerId);
     }
 
     @Override
@@ -128,27 +124,20 @@ public final class DefaultPlexVariablesApi implements PlexVariablesApi {
                                                    String value, MutationContext context) {
         VariableDefinition definition = validate(variable, scope);
         Objects.requireNonNull(value, "value");
-        return result(storage.mutateStored(definition.id(), scope, playerId, old -> value, context));
+        return storage.mutateStored(definition.id(), scope, playerId, old -> value, definition.defaultValue(), context);
     }
 
     private CompletableFuture<MutationResult> add(String variable, Scope scope, UUID playerId,
                                                    BigDecimal amount, MutationContext context) {
         VariableDefinition definition = validate(variable, scope);
         Objects.requireNonNull(amount, "amount");
-        return result(storage.addStored(definition.id(), scope, playerId, amount, definition.defaultValue(), context));
+        return storage.addStored(definition.id(), scope, playerId, amount, definition.defaultValue(), definition.defaultValue(), context);
     }
 
     private CompletableFuture<MutationResult> reset(String variable, Scope scope, UUID playerId,
                                                      MutationContext context) {
-        return result(storage.mutateStored(validate(variable, scope).id(), scope, playerId, old -> null, context));
-    }
-
-    private CompletableFuture<MutationResult> result(CompletableFuture<VariableChange> operation) {
-        return operation.handle((change, failure) -> failure == null
-                ? new MutationResult(change.oldValue().equals(change.newValue()) ? Status.NO_CHANGE : Status.SUCCESS,
-                        Optional.of(change))
-                : new MutationResult(storage.isShuttingDown() ? Status.STORAGE_UNAVAILABLE : Status.PERSISTENCE_FAILED,
-                        Optional.empty()));
+        VariableDefinition definition = validate(variable, scope);
+        return storage.mutateStored(definition.id(), scope, playerId, old -> null, definition.defaultValue(), context);
     }
 
     @Override

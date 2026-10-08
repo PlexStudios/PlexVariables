@@ -146,6 +146,7 @@ public final class SQLiteStorage {
 
 
     public void savePlayerVariable(UUID uuid, String variableId, String value, long timestamp) {
+        requireAutoCommit();
         Objects.requireNonNull(uuid, "uuid");
         Objects.requireNonNull(variableId, "variableId");
         Objects.requireNonNull(value, "value");
@@ -166,6 +167,7 @@ public final class SQLiteStorage {
     }
 
     public void deletePlayerVariable(UUID uuid, String variableId) {
+        requireAutoCommit();
         Objects.requireNonNull(uuid, "uuid");
         Objects.requireNonNull(variableId, "variableId");
         String sql = "DELETE FROM player_variables WHERE uuid = ? AND variable_id = ?";
@@ -179,6 +181,7 @@ public final class SQLiteStorage {
     }
 
     public void saveGlobalVariable(String variableId, String value, long timestamp) {
+        requireAutoCommit();
         Objects.requireNonNull(variableId, "variableId");
         Objects.requireNonNull(value, "value");
         String sql = """
@@ -197,6 +200,7 @@ public final class SQLiteStorage {
     }
 
     public void deleteGlobalVariable(String variableId) {
+        requireAutoCommit();
         Objects.requireNonNull(variableId, "variableId");
         String sql = "DELETE FROM global_variables WHERE variable_id = ?";
         try (PreparedStatement ps = connection.prepareStatement(sql)) {
@@ -204,6 +208,16 @@ public final class SQLiteStorage {
             ps.executeUpdate();
         } catch (SQLException e) {
             throw new StorageException("Failed to delete global variable '" + variableId + "'", e);
+        }
+    }
+
+    private void requireAutoCommit() {
+        try {
+            if (connection == null || !connection.getAutoCommit()) {
+                throw new StorageException("Stored writes require an active auto-commit connection");
+            }
+        } catch (SQLException exception) {
+            throw new StorageException("Could not verify stored write transaction state", exception);
         }
     }
 

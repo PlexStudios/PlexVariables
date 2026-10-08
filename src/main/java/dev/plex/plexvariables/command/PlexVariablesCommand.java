@@ -257,7 +257,7 @@ public final class PlexVariablesCommand implements TabExecutor {
                 current.messages().send(sender, "stored-scope-mismatch-global", Map.of("variable", def.id()));
                 return;
             }
-            storageManager.setGlobalValue(def.id(), value).thenRun(() -> {
+            storageManager.setGlobalValue(def.id(), value, def.defaultValue()).thenRun(() -> {
                 current.messages().send(sender, "stored-set-success", Map.of("variable", def.id(), "target", "global", "value", value));
             }).exceptionally(ex -> {
                 String msg = ex.getCause() != null ? ex.getCause().getMessage() : ex.getMessage();
@@ -275,7 +275,7 @@ public final class PlexVariablesCommand implements TabExecutor {
                 return;
             }
             String displayTarget = targetPlayer.getName() != null ? targetPlayer.getName() : targetName;
-            storageManager.setPlayerValue(targetPlayer.getUniqueId(), def.id(), value).thenRun(() -> {
+            storageManager.setPlayerValue(targetPlayer.getUniqueId(), def.id(), value, def.defaultValue()).thenRun(() -> {
                 current.messages().send(sender, "stored-set-success", Map.of("variable", def.id(), "target", displayTarget, "value", value));
             }).exceptionally(ex -> {
                 String msg = ex.getCause() != null ? ex.getCause().getMessage() : ex.getMessage();
@@ -317,7 +317,7 @@ public final class PlexVariablesCommand implements TabExecutor {
                 current.messages().send(sender, "stored-scope-mismatch-global", Map.of("variable", def.id()));
                 return;
             }
-            storageManager.addStored(def.id(), Scope.GLOBAL, null, delta, def.defaultValue() == null ? "0" : def.defaultValue(), null).thenAccept(change -> {
+            storageManager.addStoredCommand(def.id(), Scope.GLOBAL, null, delta, def.defaultValue() == null ? "0" : def.defaultValue(), def.defaultValue()).thenAccept(change -> {
                 String newValStr = change.newValue().orElseThrow();
                 current.messages().send(sender, "stored-add-success", Map.of(
                         "amount", args[3],
@@ -342,7 +342,7 @@ public final class PlexVariablesCommand implements TabExecutor {
             }
 
             String displayTarget = targetPlayer.getName() != null ? targetPlayer.getName() : targetName;
-            storageManager.addStored(def.id(), Scope.PLAYER, targetPlayer.getUniqueId(), delta, def.defaultValue() == null ? "0" : def.defaultValue(), null).thenAccept(change -> {
+            storageManager.addStoredCommand(def.id(), Scope.PLAYER, targetPlayer.getUniqueId(), delta, def.defaultValue() == null ? "0" : def.defaultValue(), def.defaultValue()).thenAccept(change -> {
                 String newValStr = change.newValue().orElseThrow();
                 current.messages().send(sender, "stored-add-success", Map.of(
                         "amount", args[3],
@@ -454,7 +454,7 @@ public final class PlexVariablesCommand implements TabExecutor {
                 current.messages().send(sender, "stored-scope-mismatch-global", Map.of("variable", def.id()));
                 return;
             }
-            storageManager.deleteGlobalValue(def.id()).thenRun(() -> {
+            storageManager.deleteGlobalValue(def.id(), def.defaultValue()).thenRun(() -> {
                 current.messages().send(sender, "stored-reset-success", Map.of("variable", def.id(), "target", "global"));
             }).exceptionally(ex -> {
                 String msg = ex.getCause() != null ? ex.getCause().getMessage() : ex.getMessage();
@@ -472,7 +472,7 @@ public final class PlexVariablesCommand implements TabExecutor {
                 return;
             }
             String displayTarget = targetPlayer.getName() != null ? targetPlayer.getName() : targetName;
-            storageManager.deletePlayerValue(targetPlayer.getUniqueId(), def.id()).thenRun(() -> {
+            storageManager.deletePlayerValue(targetPlayer.getUniqueId(), def.id(), def.defaultValue()).thenRun(() -> {
                 current.messages().send(sender, "stored-reset-success", Map.of("variable", def.id(), "target", displayTarget));
             }).exceptionally(ex -> {
                 String msg = ex.getCause() != null ? ex.getCause().getMessage() : ex.getMessage();

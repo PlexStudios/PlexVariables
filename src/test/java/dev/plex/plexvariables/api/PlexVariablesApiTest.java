@@ -16,16 +16,21 @@ import org.junit.jupiter.api.io.TempDir;
 
 import java.math.BigDecimal;
 import java.nio.file.Path;
+import java.sql.DriverManager;
 import java.util.ArrayList;
 import java.util.List;
 import java.util.Map;
+import java.util.Optional;
 import java.util.UUID;
 import java.util.concurrent.CompletableFuture;
 import java.util.concurrent.ExecutionException;
 import java.util.concurrent.TimeUnit;
+import java.util.concurrent.CountDownLatch;
+import java.util.concurrent.atomic.AtomicReference;
 import java.util.logging.Logger;
 
 import static dev.plex.plexvariables.api.PlexVariablesApi.Scope.*;
+import static dev.plex.plexvariables.api.PlexVariablesApi.Status.*;
 import static org.junit.jupiter.api.Assertions.*;
 
 class PlexVariablesApiTest {
@@ -173,5 +178,136 @@ class PlexVariablesApiTest {
             api.setStoredGlobalValue("total", "1").get(5, TimeUnit.SECONDS);
             assertEquals(1, changes.size());
         }
+    }
+
+    @Test
+    void rawTransitionsToAndFromDefaultPersistWithoutEffectiveNotifications() throws Exception {
+        UUID player = UUID.randomUUID();
+        List<PlexVariablesApi.VariableChange> changes = new ArrayList<>();
+        try (var subscription = api.subscribe(changes::add)) {
+            assertEquals(SUCCESS, api.setStoredPlayerValue(player, "score", "10").get().status());
+            assertEquals(Optional.of("10"), api.getStoredPlayerValue(player, "score").get());
+            var reset = api.resetStoredPlayerValue(player, "score").get();
+            assertEquals(SUCCESS, reset.status());
+            assertEquals(Optional.of("10"), reset.change().orElseThrow().oldValue());
+            assertTrue(reset.change().orElseThrow().newValue().isEmpty());
+            assertEquals(NO_CHANGE, api.resetStoredPlayerValue(player, "score").get().status());
+            assertEquals(SUCCESS, api.setStoredGlobalValue("total", "0").get().status());
+            assertEquals(SUCCESS, api.resetStoredGlobalValue("total").get().status());
+            assertTrue(changes.isEmpty());
+        }
+    }
+
+    @Test
+    void numericAndLimitFailuresHaveSpecificStatuses() throws Exception {
+        assertEquals(MISSING_VALUE, api.addStoredGlobalValue("unset", BigDecimal.ONE).get().status());
+        api.setStoredGlobalValue("total", "garbage").get();
+        assertEquals(NON_NUMERIC, api.addStoredGlobalValue("total", BigDecimal.ONE).get().status());
+        assertEquals(VALUE_TOO_LONG, api.setStoredGlobalValue("total", "x".repeat(5000)).get().status());
+        assertEquals("garbage", api.getStoredGlobalValue("total").get().orElseThrow());
+        UUID player = UUID.randomUUID();
+        assertEquals("9.25", api.addStoredPlayerValue(player, "score", new BigDecimal("-0.75"))
+                .get().change().orElseThrow().newValue().orElseThrow());
+        assertEquals(NO_CHANGE, api.addStoredPlayerValue(player, "score", BigDecimal.ZERO).get().status());
+    }
+
+    @Test
+    void representationChangesRemainVisibleAndContextIsOptional() throws Exception {
+        List<PlexVariablesApi.VariableChange> changes = new ArrayList<>();
+        try (var subscription = api.subscribe(changes::add)) {
+            api.setStoredGlobalValue("total", "1.0").get();
+            var context = new PlexVariablesApi.MutationContext("ExamplePlugin", Optional.of("request"), Map.of("key", "value"));
+            var result = api.addStoredGlobalValue("total", BigDecimal.ZERO, context).get();
+            assertEquals(SUCCESS, result.status());
+            assertEquals(Optional.of("1"), result.change().orElseThrow().newValue());
+            assertEquals(2, changes.size());
+            assertTrue(changes.getFirst().context().isEmpty());
+            assertEquals(Optional.of(context), changes.getLast().context());
+        }
+    }
+
+    @Test
+    void failedWriteDoesNotUpdateCacheOrNotify() throws Exception {
+        api.setStoredGlobalValue("total", "5").get();
+        List<PlexVariablesApi.VariableChange> changes = new ArrayList<>();
+        try (var connection = DriverManager.getConnection("jdbc:sqlite:" + directory.resolve("data.db"));
+             var statement = connection.createStatement();
+             var subscription = api.subscribe(changes::add)) {
+            statement.execute("CREATE TRIGGER reject_write BEFORE UPDATE ON global_variables BEGIN SELECT RAISE(ABORT, 'test write rejected'); END");
+            var result = api.setStoredGlobalValue("total", "6").get();
+            assertEquals(PERSISTENCE_FAILED, result.status());
+            assertTrue(result.change().isEmpty());
+            assertEquals("5", storage.getGlobalValue("total"));
+            assertEquals(Optional.of("5"), api.getStoredGlobalValue("total").get());
+            assertTrue(changes.isEmpty());
+            statement.execute("DROP TRIGGER reject_write");
+        }
+    }
+
+    @Test
+    void failedReadDoesNotFabricateChangeAndUsesPublicReadException() throws Exception {
+        try (var connection = DriverManager.getConnection("jdbc:sqlite:" + directory.resolve("data.db"));
+             var statement = connection.createStatement()) {
+            statement.execute("DROP TABLE global_variables");
+            var result = api.setStoredGlobalValue("total", "6").get();
+            assertEquals(PERSISTENCE_FAILED, result.status());
+            assertTrue(result.change().isEmpty());
+            var failure = assertThrows(ExecutionException.class, () -> api.getStoredGlobalValue("total").get());
+            assertInstanceOf(PlexVariablesApi.ReadException.class, failure.getCause());
+            assertNull(failure.getCause().getCause());
+        }
+    }
+
+    @Test
+    void callbackRunsOnExecutorAfterCommitVisibleToAnotherConnection() throws Exception {
+        Thread caller = Thread.currentThread();
+        AtomicReference<Throwable> failure = new AtomicReference<>();
+        try (var subscription = api.subscribe(change -> {
+            try (var connection = DriverManager.getConnection("jdbc:sqlite:" + directory.resolve("data.db"));
+                 var statement = connection.createStatement();
+                 var rows = statement.executeQuery("SELECT value FROM global_variables WHERE variable_id = 'total'")) {
+                assertNotSame(caller, Thread.currentThread());
+                assertEquals("PlexVariables-StorageThread", Thread.currentThread().getName());
+                assertTrue(rows.next());
+                assertEquals("7", rows.getString(1));
+            } catch (Throwable exception) {
+                failure.set(exception);
+            }
+        })) {
+            assertEquals(SUCCESS, api.setStoredGlobalValue("total", "7").get().status());
+            assertNull(failure.get());
+        }
+    }
+
+    @Test
+    void queuedMutationUsesSubmittedDefinitionSnapshot() throws Exception {
+        CountDownLatch entered = new CountDownLatch(1);
+        CountDownLatch release = new CountDownLatch(1);
+        try (var subscription = api.subscribe(change -> {
+            entered.countDown();
+            try {
+                if (!release.await(5, TimeUnit.SECONDS)) throw new IllegalStateException("Test timeout");
+            } catch (InterruptedException exception) {
+                Thread.currentThread().interrupt();
+                throw new IllegalStateException(exception);
+            }
+        })) {
+            var first = api.setStoredGlobalValue("unset", "hold");
+            assertTrue(entered.await(5, TimeUnit.SECONDS));
+            var queued = api.addStoredPlayerValue(UUID.randomUUID(), "score", BigDecimal.ONE);
+            state = new PluginState(state.settings(), state.messages(), Map.of(
+                    "score", VariableDefinition.ofStored("score", StoredVariableScope.PLAYER, "100", "test.yml")), 1);
+            release.countDown();
+            first.get(5, TimeUnit.SECONDS);
+            assertEquals(Optional.of("11"), queued.get(5, TimeUnit.SECONDS).change().orElseThrow().newValue());
+        } finally {
+            release.countDown();
+        }
+    }
+
+    @Test
+    void shutdownMutationReturnsUnavailable() throws Exception {
+        storage.shutdown();
+        assertEquals(STORAGE_UNAVAILABLE, api.setStoredGlobalValue("total", "1").get().status());
     }
 }

@@ -3,6 +3,9 @@ package dev.plex.plexvariables.storage;
 import dev.plex.plexvariables.config.PluginSettings;
 import dev.plex.plexvariables.api.PlexVariablesApi.Scope;
 import dev.plex.plexvariables.api.PlexVariablesApi.MutationContext;
+import dev.plex.plexvariables.api.PlexVariablesApi.MutationResult;
+import dev.plex.plexvariables.api.PlexVariablesApi.Status;
+import dev.plex.plexvariables.api.PlexVariablesApi.ReadException;
 import dev.plex.plexvariables.api.PlexVariablesApi.Subscription;
 import dev.plex.plexvariables.api.PlexVariablesApi.VariableChange;
 import java.math.BigDecimal;
@@ -88,52 +91,104 @@ public final class StorageManager {
     }
 
     public CompletableFuture<Void> setPlayerValue(UUID uuid, String variableId, String value) {
+        return setPlayerValue(uuid, variableId, value, null);
+    }
+
+    public CompletableFuture<Void> setPlayerValue(UUID uuid, String variableId, String value, String defaultValue) {
         Objects.requireNonNull(value, "value");
-        return mutateStored(variableId, Scope.PLAYER, uuid, old -> value, null).thenApply(change -> null);
+        return mutateStored(variableId, Scope.PLAYER, uuid, old -> value, defaultValue, null)
+                .thenApply(this::requireChange).thenApply(change -> null);
     }
 
     public CompletableFuture<Void> deletePlayerValue(UUID uuid, String variableId) {
-        return mutateStored(variableId, Scope.PLAYER, uuid, old -> null, null).thenApply(change -> null);
+        return deletePlayerValue(uuid, variableId, null);
+    }
+
+    public CompletableFuture<Void> deletePlayerValue(UUID uuid, String variableId, String defaultValue) {
+        return mutateStored(variableId, Scope.PLAYER, uuid, old -> null, defaultValue, null)
+                .thenApply(this::requireChange).thenApply(change -> null);
     }
 
     public CompletableFuture<Void> setGlobalValue(String variableId, String value) {
+        return setGlobalValue(variableId, value, null);
+    }
+
+    public CompletableFuture<Void> setGlobalValue(String variableId, String value, String defaultValue) {
         Objects.requireNonNull(value, "value");
-        return mutateStored(variableId, Scope.GLOBAL, null, old -> value, null).thenApply(change -> null);
+        return mutateStored(variableId, Scope.GLOBAL, null, old -> value, defaultValue, null)
+                .thenApply(this::requireChange).thenApply(change -> null);
     }
 
     public CompletableFuture<Void> deleteGlobalValue(String variableId) {
-        return mutateStored(variableId, Scope.GLOBAL, null, old -> null, null).thenApply(change -> null);
+        return deleteGlobalValue(variableId, null);
+    }
+
+    public CompletableFuture<Void> deleteGlobalValue(String variableId, String defaultValue) {
+        return mutateStored(variableId, Scope.GLOBAL, null, old -> null, defaultValue, null)
+                .thenApply(this::requireChange).thenApply(change -> null);
     }
 
     public CompletableFuture<Optional<String>> readStored(String variable, Scope scope, UUID playerId) {
         validateTarget(variable, scope, playerId);
-        return submit(() -> Optional.ofNullable(sqliteStorage.readVariable(variable, scope == Scope.PLAYER ? playerId : null)));
+        return submit(() -> Optional.ofNullable(sqliteStorage.readVariable(variable, playerId)))
+                .handle((value, failure) -> {
+                    if (failure != null) {
+                        Throwable cause = unwrap(failure);
+                        throw new ReadException(cause instanceof UnavailableException
+                                ? Status.STORAGE_UNAVAILABLE : Status.PERSISTENCE_FAILED);
+                    }
+                    return value;
+                });
     }
 
-    public CompletableFuture<VariableChange> addStored(String variable, Scope scope, UUID playerId,
-                                                       BigDecimal amount, String defaultValue, MutationContext cause) {
+    public CompletableFuture<VariableChange> addStoredCommand(String variable, Scope scope, UUID playerId,
+                                                               BigDecimal amount, String startingDefault, String effectiveDefault) {
+        return addStored(variable, scope, playerId, amount, startingDefault, effectiveDefault, null)
+                .thenApply(this::requireChange);
+    }
+
+    private VariableChange requireChange(MutationResult result) {
+        if (!result.success()) {
+            String message = switch (result.status()) {
+                case MISSING_VALUE -> "No stored value or configured numeric default is available";
+                case NON_NUMERIC -> "Stored value is not numeric";
+                case VALUE_TOO_LONG -> "Value length exceeds limit of " + settingsSupplier.get().maxStorageValueLength() + " characters";
+                case STORAGE_UNAVAILABLE -> "Storage is shutting down";
+                default -> "Failed to persist stored value";
+            };
+            throw new StorageException(message);
+        }
+        return result.change().orElseThrow();
+    }
+
+    public CompletableFuture<MutationResult> addStored(String variable, Scope scope, UUID playerId,
+                                                       BigDecimal amount, String startingDefault, String effectiveDefault,
+                                                       MutationContext context) {
         Objects.requireNonNull(amount, "amount");
         return mutateStored(variable, scope, playerId, old -> {
-            String current = old == null ? defaultValue : old;
-            if (current == null) throw new StorageException("No stored value or configured numeric default is available");
-            BigDecimal number = new BigDecimal(current.trim());
-            return number.add(amount).stripTrailingZeros().toPlainString();
-        }, cause);
+            String current = old == null ? startingDefault : old;
+            if (current == null) throw new MutationFailure(Status.MISSING_VALUE);
+            try {
+                return new BigDecimal(current.trim()).add(amount).stripTrailingZeros().toPlainString();
+            } catch (NumberFormatException exception) {
+                throw new MutationFailure(Status.NON_NUMERIC);
+            }
+        }, effectiveDefault, context);
     }
 
-    public CompletableFuture<VariableChange> mutateStored(String variable, Scope scope, UUID playerId,
-                                                         UnaryOperator<String> mutation, MutationContext cause) {
+    public CompletableFuture<MutationResult> mutateStored(String variable, Scope scope, UUID playerId,
+                                                          UnaryOperator<String> mutation, String defaultValue,
+                                                          MutationContext context) {
         validateTarget(variable, scope, playerId);
         Objects.requireNonNull(mutation, "mutation");
         return submit(() -> {
             String old = sqliteStorage.readVariable(variable, playerId);
             String value = mutation.apply(old);
             int limit = settingsSupplier.get().maxStorageValueLength();
-            if (value != null && value.length() > limit) {
-                throw new StorageException("Value length exceeds limit of " + limit + " characters");
-            }
-            VariableChange change = new VariableChange(variable, scope, Optional.ofNullable(playerId), Optional.ofNullable(old), Optional.ofNullable(value), Optional.ofNullable(cause));
-            if (Objects.equals(old, value)) return change;
+            if (value != null && value.length() > limit) throw new MutationFailure(Status.VALUE_TOO_LONG);
+            VariableChange change = new VariableChange(variable, scope, Optional.ofNullable(playerId),
+                    Optional.ofNullable(old), Optional.ofNullable(value), Optional.ofNullable(context));
+            if (Objects.equals(old, value)) return new MutationResult(Status.NO_CHANGE, Optional.of(change));
             if (scope == Scope.PLAYER) {
                 if (value == null) sqliteStorage.deletePlayerVariable(playerId, variable);
                 else sqliteStorage.savePlayerVariable(playerId, variable, value, System.currentTimeMillis());
@@ -147,11 +202,46 @@ public final class StorageManager {
                 if (value == null) globalCache.remove(variable);
                 else globalCache.set(variable, value);
             }
-            for (Consumer<VariableChange> listener : listeners) listener.accept(change);
-            return change;
+            String oldEffective = old == null ? defaultValue : old;
+            String newEffective = value == null ? defaultValue : value;
+            if (!Objects.equals(oldEffective, newEffective)) {
+                for (Consumer<VariableChange> listener : listeners) listener.accept(change);
+            }
+            return new MutationResult(Status.SUCCESS, Optional.of(change));
+        }).handle((result, failure) -> {
+            if (failure == null) return result;
+            Throwable cause = unwrap(failure);
+            Status status;
+            if (cause instanceof MutationFailure rejected) status = rejected.status;
+            else if (cause instanceof UnavailableException) status = Status.STORAGE_UNAVAILABLE;
+            else {
+                status = Status.PERSISTENCE_FAILED;
+                logger.warning("Stored variable mutation failed (" + cause.getClass().getName() + ")");
+            }
+            return new MutationResult(status, Optional.empty());
         });
     }
 
+    private static Throwable unwrap(Throwable failure) {
+        while (failure instanceof java.util.concurrent.CompletionException && failure.getCause() != null) {
+            failure = failure.getCause();
+        }
+        return failure;
+    }
+
+    private static final class MutationFailure extends RuntimeException {
+        private final Status status;
+
+        private MutationFailure(Status status) {
+            this.status = status;
+        }
+    }
+
+    private static final class UnavailableException extends StorageException {
+        private UnavailableException() {
+            super("Storage is shutting down");
+        }
+    }
     public synchronized Subscription subscribe(Consumer<VariableChange> listener) {
         Objects.requireNonNull(listener, "listener");
         if (shuttingDown) throw new IllegalStateException("Storage is shutting down");
@@ -177,11 +267,11 @@ public final class StorageManager {
     }
 
     private <T> CompletableFuture<T> submit(Supplier<T> task) {
-        if (shuttingDown) return CompletableFuture.failedFuture(new StorageException("Storage is shutting down"));
+        if (shuttingDown) return CompletableFuture.failedFuture(new UnavailableException());
         try {
             return CompletableFuture.supplyAsync(task, executor);
         } catch (java.util.concurrent.RejectedExecutionException exception) {
-            return CompletableFuture.failedFuture(new StorageException("Storage is shutting down", exception));
+            return CompletableFuture.failedFuture(new UnavailableException());
         }
     }
 
