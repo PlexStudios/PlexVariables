@@ -18,6 +18,8 @@ import org.mockito.Mockito;
 import java.io.IOException;
 import java.nio.file.Files;
 import java.nio.file.Path;
+import java.sql.DriverManager;
+import java.util.ArrayList;
 import java.util.Map;
 import java.util.UUID;
 import java.util.logging.Logger;
@@ -219,5 +221,50 @@ class StoredVariableTest {
         cache.setLoadedData(uuid, Map.of("key", "stale_value"), version1);
 
         assertEquals("newer_value", cache.getPlayerValue(uuid, "key"));
+    }
+
+    @Test
+    void restartPreservesRowsSchemaAndPlaceholderResolution() throws Exception {
+        UUID playerId = UUID.randomUUID();
+        storageManager.setPlayerValue(playerId, "gems", "23").get();
+        storageManager.setGlobalValue("multiplier", "2.5").get();
+        storageManager.shutdown();
+        storageManager = new StorageManager(dbPath, PluginSettings::defaults, LOGGER);
+        storageManager.init();
+        assertEquals("2.5", storageManager.getGlobalValue("multiplier"));
+        storageManager.loadPlayerAsync(playerId).get();
+        var state = new PluginState(PluginSettings.defaults(), MessageUtil.from(new YamlConfiguration()), Map.of(
+                "gems", VariableDefinition.ofStored("gems", StoredVariableScope.PLAYER, "10", "stored.yml"),
+                "multiplier", VariableDefinition.ofStored("multiplier", StoredVariableScope.GLOBAL, "1", "stored.yml")), 1);
+        var resolver = new VariableResolver(() -> state, (player, text) -> text, storageManager, LOGGER);
+        var expansion = new dev.plex.plexvariables.placeholder.PlexVariablesExpansion(resolver, "1.0.1", "Test");
+        OfflinePlayer player = Mockito.mock(OfflinePlayer.class);
+        when(player.getUniqueId()).thenReturn(playerId);
+        assertEquals("23", expansion.onRequest(player, "gems"));
+        assertEquals("2.5", expansion.onRequest(null, "global_multiplier"));
+        assertEquals("10", expansion.onRequest(null, "gems"));
+        storageManager.deletePlayerValue(playerId, "gems").get();
+        assertEquals("10", expansion.onRequest(player, "gems"));
+        try (var connection = DriverManager.getConnection("jdbc:sqlite:" + dbPath);
+             var statement = connection.createStatement()) {
+            try (var rows = statement.executeQuery("SELECT value FROM plexvariables_meta WHERE key = 'schema_version'")) {
+                assertTrue(rows.next());
+                assertEquals("1", rows.getString(1));
+            }
+            for (String table : new String[]{"player_variables", "global_variables"}) {
+                var columns = new ArrayList<String>();
+                try (var rows = statement.executeQuery("PRAGMA table_info(" + table + ")")) {
+                    while (rows.next()) columns.add(rows.getString("name"));
+                }
+                assertEquals(table.equals("player_variables")
+                        ? java.util.List.of("uuid", "variable_id", "value", "updated_at")
+                        : java.util.List.of("variable_id", "value", "updated_at"), columns);
+            }
+            var tables = new ArrayList<String>();
+            try (var rows = statement.executeQuery("SELECT name FROM sqlite_master WHERE type = 'table' ORDER BY name")) {
+                while (rows.next()) tables.add(rows.getString(1));
+            }
+            assertEquals(java.util.List.of("global_variables", "player_variables", "plexvariables_meta"), tables);
+        }
     }
 }

@@ -310,4 +310,38 @@ class PlexVariablesApiTest {
         storage.shutdown();
         assertEquals(STORAGE_UNAVAILABLE, api.setStoredGlobalValue("total", "1").get().status());
     }
+
+    @Test
+    void allContextOverloadsPreservePlayerAndGlobalIdentity() throws Exception {
+        UUID player = UUID.randomUUID();
+        var context = new PlexVariablesApi.MutationContext("ExamplePlugin");
+        List<PlexVariablesApi.VariableChange> changes = new ArrayList<>();
+        try (var subscription = api.subscribe(changes::add)) {
+            api.setStoredPlayerValue(player, "score", "20", context).get();
+            api.addStoredPlayerValue(player, "score", BigDecimal.ONE, context).get();
+            api.resetStoredPlayerValue(player, "score", context).get();
+            api.setStoredGlobalValue("total", "20", context).get();
+            api.addStoredGlobalValue("total", BigDecimal.ONE, context).get();
+            api.resetStoredGlobalValue("total", context).get();
+            assertEquals(6, changes.size());
+            for (var change : changes) {
+                assertEquals(Optional.of(context), change.context());
+                assertEquals(change.scope() == PLAYER ? Optional.of(player) : Optional.empty(), change.playerId());
+            }
+            assertTrue(api.getStoredPlayerValue(player, "score").get().isEmpty());
+            assertTrue(api.getStoredGlobalValue("total").get().isEmpty());
+        }
+    }
+
+    @Test
+    void malformedDefaultAndInvalidArgumentsAreRejected() throws Exception {
+        state = new PluginState(state.settings(), state.messages(), Map.of(
+                "text", VariableDefinition.ofStored("text", StoredVariableScope.GLOBAL, "invalid", "test.yml")), 1);
+        assertEquals(NON_NUMERIC, api.addStoredGlobalValue("text", BigDecimal.ONE).get().status());
+        assertTrue(api.getStoredGlobalValue("text").get().isEmpty());
+        assertThrows(IllegalArgumentException.class, () -> api.getStoredGlobalValue(" "));
+        assertThrows(NullPointerException.class, () -> api.getStoredGlobalValue(null));
+        assertThrows(NullPointerException.class, () -> api.addStoredGlobalValue("text", null));
+        assertThrows(NullPointerException.class, () -> api.resetStoredGlobalValue("text", null));
+    }
 }

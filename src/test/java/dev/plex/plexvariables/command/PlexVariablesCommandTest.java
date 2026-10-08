@@ -29,6 +29,8 @@ import java.util.List;
 import java.util.Map;
 import java.util.UUID;
 import java.util.concurrent.atomic.AtomicReference;
+import java.util.concurrent.TimeUnit;
+import dev.plex.plexvariables.api.PlexVariablesApi;
 import java.util.logging.Logger;
 
 import static org.junit.jupiter.api.Assertions.*;
@@ -161,18 +163,18 @@ class PlexVariablesCommandTest {
         var messages = new ArrayList<String>();
 
         command.onCommand(sender(messages), null, "pv", new String[]{"set", "global_event", "global", "active"});
-        Thread.sleep(100);
+        storageManager.readStored("global_event", PlexVariablesApi.Scope.GLOBAL, null).get(5, TimeUnit.SECONDS);
         assertTrue(messages.stream().anyMatch(msg -> msg.contains("Set stored variable global_event for global to 'active'")));
 
         command.onCommand(sender(messages), null, "pv", new String[]{"get", "global_event"});
         assertTrue(messages.stream().anyMatch(msg -> msg.contains("active")));
 
         command.onCommand(sender(messages), null, "pv", new String[]{"set", "gems", "Alex", "100"});
-        Thread.sleep(100);
+        storageManager.readStored("gems", PlexVariablesApi.Scope.PLAYER, uuid).get(5, TimeUnit.SECONDS);
         assertTrue(messages.stream().anyMatch(msg -> msg.contains("Set stored variable gems for Alex to '100'")));
 
         command.onCommand(sender(messages), null, "pv", new String[]{"add", "gems", "Alex", "50"});
-        Thread.sleep(100);
+        storageManager.readStored("gems", PlexVariablesApi.Scope.PLAYER, uuid).get(5, TimeUnit.SECONDS);
         assertTrue(messages.stream().anyMatch(msg -> msg.contains("Added 50 to stored variable gems for Alex")));
 
         command.onCommand(sender(messages), null, "pv", new String[]{"test", "Alex", "gems"});
@@ -180,6 +182,71 @@ class PlexVariablesCommandTest {
         assertTrue(messages.stream().anyMatch(msg -> msg.contains("Raw Stored: 150")));
 
         storageManager.shutdown();
+    }
+
+    @Test
+    void storedCommandsPreserveBothScopesDefaultsRemoveAndNotifications() throws Exception {
+        var storage = new StorageManager(tempDir.resolve("regression.db"), PluginSettings::defaults, Logger.getAnonymousLogger());
+        storage.init();
+        try {
+            var state = state(Map.of(
+                    "player_value", VariableDefinition.ofStored("player_value", StoredVariableScope.PLAYER, "10", "test.yml"),
+                    "global_value", VariableDefinition.ofStored("global_value", StoredVariableScope.GLOBAL, "10", "test.yml"),
+                    "unset", VariableDefinition.ofStored("unset", StoredVariableScope.GLOBAL, null, "test.yml")));
+            Server server = mock(Server.class);
+            Player player = mock(Player.class);
+            UUID id = UUID.randomUUID();
+            when(player.getUniqueId()).thenReturn(id);
+            when(player.getName()).thenReturn("Alex");
+            when(server.getPlayerExact("Alex")).thenReturn(player);
+            storage.loadPlayerAsync(id).get(5, TimeUnit.SECONDS);
+            var resolver = new VariableResolver(() -> state, (target, text) -> text, storage, Logger.getAnonymousLogger());
+            var api = new dev.plex.plexvariables.implementation.DefaultPlexVariablesApi(() -> state, resolver, storage, () -> true);
+            var command = new PlexVariablesCommand(() -> state, resolver, null, storage, server, Logger.getAnonymousLogger());
+            var messages = new ArrayList<String>();
+            var sender = sender(messages);
+            var changes = new ArrayList<PlexVariablesApi.VariableChange>();
+            try (var subscription = api.subscribe(changes::add)) {
+                for (String variable : List.of("player_value", "global_value")) {
+                    String target = variable.equals("player_value") ? "Alex" : "global";
+                    var scope = target.equals("Alex") ? PlexVariablesApi.Scope.PLAYER : PlexVariablesApi.Scope.GLOBAL;
+                    UUID uuid = scope == PlexVariablesApi.Scope.PLAYER ? id : null;
+                    command.onCommand(sender, null, "pvar", new String[]{"set", variable, target, "10"});
+                    assertEquals("10", storage.readStored(variable, scope, uuid).get(5, TimeUnit.SECONDS).orElseThrow());
+                    assertTrue(changes.isEmpty());
+                    command.onCommand(sender, null, "plexvar", new String[]{"reset", variable, target});
+                    assertTrue(storage.readStored(variable, scope, uuid).get(5, TimeUnit.SECONDS).isEmpty());
+                    assertTrue(changes.isEmpty());
+                }
+                for (String variable : List.of("player_value", "global_value")) {
+                    String target = variable.equals("player_value") ? "Alex" : "global";
+                    var scope = target.equals("Alex") ? PlexVariablesApi.Scope.PLAYER : PlexVariablesApi.Scope.GLOBAL;
+                    UUID uuid = scope == PlexVariablesApi.Scope.PLAYER ? id : null;
+                    command.onCommand(sender, null, "pv", new String[]{"add", variable, target, "2.5"});
+                    assertEquals("12.5", storage.readStored(variable, scope, uuid).get(5, TimeUnit.SECONDS).orElseThrow());
+                    command.onCommand(sender, null, "pv", new String[]{"get", variable, target});
+                    assertTrue(messages.stream().anyMatch(message -> message.contains("12.5")));
+                    command.onCommand(sender, null, "pv", new String[]{"remove", variable, target});
+                    assertTrue(storage.readStored(variable, scope, uuid).get(5, TimeUnit.SECONDS).isEmpty());
+                }
+                assertEquals(4, changes.size());
+                assertEquals(PlexVariablesApi.Scope.PLAYER, changes.getFirst().scope());
+                assertEquals(java.util.Optional.of(id), changes.getFirst().playerId());
+                assertEquals(PlexVariablesApi.Status.MISSING_VALUE, api.addStoredGlobalValue("unset", java.math.BigDecimal.ONE).get().status());
+                command.onCommand(sender, null, "pv", new String[]{"add", "unset", "global", "1"});
+                assertEquals("1", api.getStoredGlobalValue("unset").get(5, TimeUnit.SECONDS).orElseThrow());
+                int count = changes.size();
+                when(sender.hasPermission("plexvariables.set")).thenReturn(false);
+                command.onCommand(sender, null, "pv", new String[]{"set", "unset", "global", "9"});
+                assertEquals("1", api.getStoredGlobalValue("unset").get(5, TimeUnit.SECONDS).orElseThrow());
+                command.onCommand(sender, null, "pv", new String[]{"add", "unset", "global", "invalid"});
+                assertEquals("1", api.getStoredGlobalValue("unset").get(5, TimeUnit.SECONDS).orElseThrow());
+                assertEquals(count, changes.size());
+                assertTrue(messages.stream().anyMatch(message -> message.contains("not a valid number")));
+            }
+        } finally {
+            storage.shutdown();
+        }
     }
 
     private static CommandSender sender(ArrayList<String> output) {
